@@ -1,0 +1,3 @@
+[submodule "simulators/neurosim"]
+	path = simulators/neurosim
+	url = https://github.com/neurosim/NeuroSim.git
