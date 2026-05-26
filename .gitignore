@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Environments
+venv/
+.env/
+.venv/
+conda-env/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Mac
+.DS_Store
+
+# Large data/results
+data/raw/
+data/models/
+results/logs/
+results/checkpoints/
+*.pt
+*.pth
+*.bin
+*.safetensors
+
+# Build files
+build/
+dist/
+cmake-build-*/
+*.o
+*.so
+*.dylib
+
+# Simulator build outputs
+simulators/**/build/
+simulators/**/*.o
+simulators/**/*.so

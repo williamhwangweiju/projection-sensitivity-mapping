@@ -1,3 +1,6 @@
 [submodule "simulators/neurosim"]
 	path = simulators/neurosim
 	url = https://github.com/neurosim/NeuroSim.git
+[submodule "simulators/ibm_3d_cim"]
+	path = simulators/ibm_3d_cim
+	url = https://github.com/IBM/3D-CiM-LLM-Inference-Simulator.git
