@@ -29,7 +29,6 @@ def get_clean_logits(model, inputs):
     # outputs.logits shape: [batch_size, seq_len, vocab_size]
     return outputs.logits
 
-
 def make_noise_hook(noise_std):
     """
     Create a forward hook that adds Gaussian noise to a layer's output hidden states.
@@ -70,7 +69,6 @@ def make_noise_hook(noise_std):
 
     return hook
 
-
 def run_noisy_logits(model, inputs, layer_idx, noise_std):
     """
     Inject noise into one specific transformer layer and return noisy logits.
@@ -94,7 +92,6 @@ def run_noisy_logits(model, inputs, layer_idx, noise_std):
         hook_handle.remove()
 
     return noisy_logits
-
 
 def compute_kl_divergence(clean_logits, noisy_logits):
     """
@@ -128,7 +125,6 @@ def compute_kl_divergence(clean_logits, noisy_logits):
 
     return kl.item()
 
-
 def did_next_token_change(clean_logits, noisy_logits):
     """
     Check whether the top-1 predicted next token changed.
@@ -138,7 +134,6 @@ def did_next_token_change(clean_logits, noisy_logits):
     noisy_next_token = torch.argmax(noisy_logits[0, -1, :]).item()
 
     return clean_next_token != noisy_next_token
-
 
 def main():
     model_name = "gpt2"
@@ -260,7 +255,6 @@ def main():
         print(f"Layer {layer_idx:02d}: change rate = {rate:.4f}")
 
     print(f"\nSaved results to: {output_path}")
-
 
 if __name__ == "__main__":
     main()
