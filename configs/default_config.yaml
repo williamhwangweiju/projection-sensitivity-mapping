@@ -1,0 +1,57 @@
+# Default Configuration for Fidelity-Aware Adaptive Mapping
+
+# Model Configuration
+model:
+  name: "gpt2"  # Options: gpt2, distilgpt2
+  pretrained: true
+  device: "cpu"
+
+# Dataset Configuration
+dataset:
+  name: "wikitext"
+  split: "wikitext-2"
+  batch_size: 8
+  max_tokens: 10000
+
+# Hardware Configuration
+hardware:
+  num_tiles: 64
+  tile_capacity_mb: 1  # 1 MB per tile
+  programming_bandwidth_gbps: 10.0
+  
+  # Device non-idealities
+  conductance_drift_rate: 0.001
+  temperature_variation: 0.05
+  aging_rate: 0.0005
+
+# Mapping Configuration
+mapping:
+  migration_threshold: 0.1
+  remapping_cooldown: 10
+  strategy: "adaptive"  # Options: random, sequential, hardware_only, static_sensitive, adaptive
+
+# Profiling Configuration
+profiling:
+  noise_std_start: 0.0
+  noise_std_end: 0.05
+  noise_levels: 5
+  num_seeds: 3
+  normalize: true  # true: comparable 0-1 scale, false: raw peak delta perplexity
+
+# Evaluation Configuration
+evaluation:
+  metrics:
+    - "perplexity"
+    - "kl_divergence"
+    - "sensitivity_weighted_error"
+    - "remapping_events"
+    - "total_weight_moved"
+  log_interval: 10
+
+# Experiment Configuration
+experiment:
+  name: "baseline"
+  seed: 42
+  num_timesteps: 100
+  degradation_scenario: "gradual"  # Options: gradual, localized, thermal
+  save_dir: "./results"

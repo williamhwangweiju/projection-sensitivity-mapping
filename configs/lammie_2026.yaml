@@ -1,0 +1,80 @@
+# LAMMIE 2026 Configuration
+# "Heterogeneous Mapping for Analog In-Memory Computing Accelerators:
+# A Unified Workflow"
+
+model:
+  name: "gpt2"
+  pretrained: true
+
+  # Use "cpu" on macOS.
+  # Use "cuda" only with a CUDA-enabled AIHWKIT installation.
+  device: "cpu"
+
+dataset:
+  name: "Salesforce/wikitext"
+  config: "wikitext-103-raw-v1"
+  split: "test"
+
+  # One 1024-token sequence per evaluation batch.
+  batch_size: 1
+  sequence_length: 1024
+
+  # 16 complete, non-overlapping 1024-token sequences.
+  # Set to null to evaluate all available test tokens.
+  max_tokens: 16384
+
+profiling:
+  # ==================== STAGE 1: AIMC CONFIGURATION ====================
+
+  # AIHWKIT LayerGaussian clipping over each complete logical projection.
+  weight_clipping_std_multiple: 2.5
+
+  # Physical analog tile dimensions.
+  crossbar_rows: 512
+  crossbar_cols: 512
+
+  # Approximately 8-bit DAC and ADC discretization.
+  adc_dac_bits: 8
+
+  # One-time programming noise relative to the programmed tile range.
+  programming_noise_std: 0.023
+  programming_noise_range_mode: "absmax"
+
+  # Immediate post-programming inference.
+  t_inference_seconds: 0.0
+
+  # AIHWKIT analog MVM scaling and bounds.
+  input_bound: 1.0
+  output_bound: 12.0
+  weight_scaling_omega: 1.0
+
+  # ==================== STAGE 2: SENSITIVITY ANALYSIS ====================
+
+  # Independent fixed programming realizations per projection.
+  num_seeds: 10
+
+  # Delta PPL = mean noisy PPL - digital PPL.
+  sensitivity_metric: "perplexity"
+
+  # Reject accidental departures from the disclosed paper parameters.
+  strict_paper_config: true
+
+evaluation:
+  metrics:
+    - "perplexity"
+    - "perplexity_increase"
+  log_interval: 1
+
+experiment:
+  name: "lammie_2026_reproduction"
+  seed: 42
+  max_workers: 1
+  save_dir: "./data/results"
+  degradation_scenario: "none"
+
+advanced:
+  min_perplexity: 1.0
+  max_perplexity: 1000.0
+  output_format: "json"
+  include_layer_statistics: true
+  include_block_analysis: true
