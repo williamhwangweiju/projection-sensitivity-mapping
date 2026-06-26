@@ -180,8 +180,10 @@ def profile_all_projections(model, tokenizer, dataloader, config, logger):
     )
     
     # Get noise settings from config
-    noise_std = config['profiling'].get('noise_std_start', 0.023)  # Use start value (Lammie fixed)
-    num_seeds = config['profiling'].get('num_seeds', 10)
+    noise_std_start = config["profiling"].get("noise_std_start", 0.0)
+    noise_std_end = config["profiling"].get("noise_std_end", 0.05)
+    num_noise_levels = config["profiling"].get("noise_levels", 5)
+    num_seeds = config["profiling"].get("num_seeds", 10)
     
     # Materialize batches once. The profiler computes clean PPL and then
     # reuses the same dataset for each noisy seed; a generator would be
@@ -222,8 +224,10 @@ def profile_all_projections(model, tokenizer, dataloader, config, logger):
                 block_id=block_id if proj_name != "lm_head" else "block_11",
                 proj_name=proj_name,
                 dataset=profile_batches,
-                noise_std=noise_std,
-                num_seeds=num_seeds
+                noise_std_start=noise_std_start,
+                noise_std_end=noise_std_end,
+                num_noise_levels=num_noise_levels,
+                num_seeds=num_seeds,
             )
             
             # Store result
@@ -233,15 +237,18 @@ def profile_all_projections(model, tokenizer, dataloader, config, logger):
             # Convert to format compatible with analysis script
             all_results[block_id][proj_name] = {
                 "ppl_clean": result["ppl_clean"],
-                "sensitivities_mean": [result["sensitivity_mean"]],
-                "sensitivities_std": [result["sensitivity_std"]],
-                "noise_levels": [result["noise_level"]],
-                "delta_ppl_mean": [result["sensitivity_mean"]],
-                "delta_ppl_std": [result["sensitivity_std"]],
+                "sensitivities_mean": result["sensitivities_mean"],
+                "sensitivities_std": result["sensitivities_std"],
+                "noise_levels": result["noise_levels"],
+                "delta_ppl_mean": result["sensitivities_mean"],
+                "delta_ppl_std": result["sensitivities_std"],
             }
-            
-            logger.info(f"  {display_name}: ppl_clean={result['ppl_clean']:.2f}, "
-                       f"sensitivity={result['sensitivity_mean']:.4f}±{result['sensitivity_std']:.4f}")
+
+            peak_sensitivity = _peak_sensitivity(all_results[block_id][proj_name])
+            logger.info(
+                f"  {display_name}: ppl_clean={result['ppl_clean']:.2f}, "
+                f"peak_sensitivity={peak_sensitivity:.4f}"
+            )
         
         except Exception as e:
             logger.warning(f"Failed to profile {display_name}: {e}")
@@ -249,7 +256,7 @@ def profile_all_projections(model, tokenizer, dataloader, config, logger):
                 "ppl_clean": np.nan,
                 "sensitivities_mean": [np.nan],
                 "sensitivities_std": [np.nan],
-                "noise_levels": [noise_std],
+                "noise_levels": [noise_std_end],
                 "delta_ppl_mean": [np.nan],
                 "delta_ppl_std": [np.nan],
             }

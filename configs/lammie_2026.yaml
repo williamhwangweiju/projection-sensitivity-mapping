@@ -1,80 +1,47 @@
-# LAMMIE 2026 Configuration
+# ============================================================================
+# LAMMIE (2026) PAPER-FIDELITY CONFIGURATION
 # "Heterogeneous Mapping for Analog In-Memory Computing Accelerators:
-# A Unified Workflow"
+#  A Unified Workflow"
+# ============================================================================
 
+# ============================================================================
+# MODEL PARAMETERS
+# ============================================================================
 model:
-  name: "gpt2"
-  pretrained: true
+  name: gpt2
+  device: cpu
 
-  # Use "cpu" on macOS.
-  # Use "cuda" only with a CUDA-enabled AIHWKIT installation.
-  device: "cpu"
-
+# ============================================================================
+# DATASET PARAMETERS
+# ============================================================================
 dataset:
-  name: "Salesforce/wikitext"
-  config: "wikitext-103-raw-v1"
-  split: "test"
-
-  # One 1024-token sequence per evaluation batch.
-  batch_size: 1
+  name: Salesforce/wikitext
+  config: wikitext-103-raw-v1
+  split: test
+  max_tokens: null
   sequence_length: 1024
+  stride: 1024
+  batch_size: 1
+  document_separator: "\n\n"
+  drop_incomplete_final_sequence: true
 
-  # 16 complete, non-overlapping 1024-token sequences.
-  # Set to null to evaluate all available test tokens.
-  max_tokens: 16384
-
+# ============================================================================
+# PROFILING PARAMETERS
+# Keys in this section are read directly by the updated profiler.
+# ============================================================================
 profiling:
-  # ==================== STAGE 1: AIMC CONFIGURATION ====================
-
-  # AIHWKIT LayerGaussian clipping over each complete logical projection.
-  weight_clipping_std_multiple: 2.5
-
-  # Physical analog tile dimensions.
-  crossbar_rows: 512
-  crossbar_cols: 512
-
-  # Approximately 8-bit DAC and ADC discretization.
+  include_lm_head: true
+  
+  clip_sigma: 2.5
+  tile_size: 512
   adc_dac_bits: 8
+  programming_noise_sigma: 0.023
 
-  # One-time programming noise relative to the programmed tile range.
-  programming_noise_std: 0.023
-  programming_noise_range_mode: "absmax"
-
-  # Immediate post-programming inference.
-  t_inference_seconds: 0.0
-
-  # AIHWKIT analog MVM scaling and bounds.
-  input_bound: 1.0
-  output_bound: 12.0
-  weight_scaling_omega: 1.0
-
-  # ==================== STAGE 2: SENSITIVITY ANALYSIS ====================
-
-  # Independent fixed programming realizations per projection.
   num_seeds: 10
-
-  # Delta PPL = mean noisy PPL - digital PPL.
-  sensitivity_metric: "perplexity"
-
-  # Reject accidental departures from the disclosed paper parameters.
-  strict_paper_config: true
-
-evaluation:
-  metrics:
-    - "perplexity"
-    - "perplexity_increase"
-  log_interval: 1
+  seed_stride: 1
+  profile_blocks: [11]
 
 experiment:
-  name: "lammie_2026_reproduction"
   seed: 42
-  max_workers: 1
-  save_dir: "./data/results"
-  degradation_scenario: "none"
-
-advanced:
-  min_perplexity: 1.0
-  max_perplexity: 1000.0
-  output_format: "json"
-  include_layer_statistics: true
-  include_block_analysis: true
+  save_dir: ./data/results
+  results_filename_prefix: programming_noise_sensitivity

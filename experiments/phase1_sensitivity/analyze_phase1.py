@@ -450,6 +450,29 @@ def plot_sensitivities(
     blocks = sorted(sensitivities, key=block_sort_key)
     proj_names = PROJECTION_ORDER
     all_values = finite_values(sensitivities)
+
+    # blocks = [
+    #     block_id
+    #     for block_id in sorted(sensitivities, key=block_sort_key)
+    #     if block_id != "lm_head"
+    # ]
+
+    # proj_names = [
+    #     proj_name
+    #     for proj_name in PROJECTION_ORDER
+    #     if proj_name != "lm_head"
+    # ]
+
+    # plot_only_sensitivities = {
+    #     block_id: {
+    #         proj_name: value
+    #         for proj_name, value in sensitivities[block_id].items()
+    #         if proj_name in proj_names
+    #     }
+    #     for block_id in blocks
+    # }
+
+    # all_values = finite_values(plot_only_sensitivities)
     output_files: List[Path] = []
 
     # ------------------------------------------------------------------

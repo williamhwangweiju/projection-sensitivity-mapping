@@ -1,57 +1,55 @@
-# Default Configuration for Fidelity-Aware Adaptive Mapping
+# ============================================================================
+# AIHWKIT DEFAULT-CONFIGURATION PROFILING
+# ============================================================================
+# The analog hardware configuration is created entirely from:
+#
+#     InferenceRPUConfig()
+#
+# No ADC/DAC, clipping, mapping, programming-noise, drift, or device
+# parameters are overridden in this YAML.
+# ============================================================================
 
-# Model Configuration
+# ============================================================================
+# MODEL
+# ============================================================================
 model:
-  name: "gpt2"  # Options: gpt2, distilgpt2
-  pretrained: true
-  device: "cpu"
+  name: gpt2
+  device: cpu
 
-# Dataset Configuration
+# ============================================================================
+# DATASET
+# ============================================================================
 dataset:
-  name: "wikitext"
-  split: "wikitext-2"
-  batch_size: 8
-  max_tokens: 10000
+  name: Salesforce/wikitext
+  config: wikitext-103-raw-v1
+  split: test
 
-# Hardware Configuration
-hardware:
-  num_tiles: 64
-  tile_capacity_mb: 1  # 1 MB per tile
-  programming_bandwidth_gbps: 10.0
-  
-  # Device non-idealities
-  conductance_drift_rate: 0.001
-  temperature_variation: 0.05
-  aging_rate: 0.0005
+  max_tokens: 4096
+  sequence_length: 512
+  stride: 512
+  batch_size: 1
 
-# Mapping Configuration
-mapping:
-  migration_threshold: 0.1
-  remapping_cooldown: 10
-  strategy: "adaptive"  # Options: random, sequential, hardware_only, static_sensitive, adaptive
+  document_separator: "\n\n"
+  drop_incomplete_final_sequence: true
 
-# Profiling Configuration
+# ============================================================================
+# PROFILING
+# ============================================================================
 profiling:
-  noise_std_start: 0.0
-  noise_std_end: 0.05
-  noise_levels: 5
-  num_seeds: 3
-  normalize: true  # true: comparable 0-1 scale, false: raw peak delta perplexity
+  # Number of independent calls to AIHWKIT weight programming.
+  num_seeds: 1
 
-# Evaluation Configuration
-evaluation:
-  metrics:
-    - "perplexity"
-    - "kl_divergence"
-    - "sensitivity_weighted_error"
-    - "remapping_events"
-    - "total_weight_moved"
-  log_interval: 10
+  # Difference between consecutive realization seeds.
+  seed_stride: 1
 
-# Experiment Configuration
+  # Transformer blocks to profile.
+  # Selecting block 11 also profiles lm_head.
+  profile_blocks: [11]
+
+# ============================================================================
+# EXPERIMENT
+# ============================================================================
 experiment:
-  name: "baseline"
   seed: 42
-  num_timesteps: 100
-  degradation_scenario: "gradual"  # Options: gradual, localized, thermal
-  save_dir: "./results"
+  save_dir: ./data/results
+  results_filename_prefix: aihwkit_defaults_only

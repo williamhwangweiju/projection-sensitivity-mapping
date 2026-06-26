@@ -1,0 +1,28 @@
+# Configuration for:
+#   - src/profilers/sensitivity_profiler.py
+#   - experiments/phase1_sensitivity/run_sensitivity_profiling.py
+
+model:
+  name: gpt2
+  pretrained: true
+  device: cpu
+
+dataset:
+  name: wikitext
+  split: wikitext-103
+  batch_size: 1
+  max_tokens: 4096
+  sequence_length: 256
+
+profiling:
+  # Script-level settings consumed by run_sensitivity_profiling.py
+  noise_std_start: 0.0
+  noise_std_end: 0.023
+  noise_levels: 1
+  num_seeds: 10
+  normalize: false
+
+experiment:
+  name: phase1_sensitivity_pipeline
+  seed: 42
+  save_dir: ./data/results
