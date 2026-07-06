@@ -1,0 +1,1476 @@
+{
+  "metadata": {
+    "paper": "Heterogeneous Mapping for Analog In-Memory Computing Accelerators: A Unified Workflow",
+    "created_at_utc": "2026-07-06T21:57:22.319609+00:00",
+    "software_versions": {
+      "python": "3.12.13",
+      "torch": "2.12.1",
+      "transformers": "5.12.1",
+      "datasets": "5.0.0",
+      "aihwkit": "1.1.0"
+    },
+    "model": {
+      "name": "gpt2",
+      "n_layer": 12,
+      "n_embd": 768,
+      "vocab_size": 50257,
+      "dtype": "torch.float32"
+    },
+    "dataset": {
+      "name": "Salesforce/wikitext",
+      "config": "wikitext-103-raw-v1",
+      "split": "test",
+      "sequence_length": 256,
+      "stride": 256,
+      "batch_size": 1,
+      "max_tokens": 1024,
+      "collected_tokens": 1024,
+      "num_windows": 4,
+      "num_batches": 4,
+      "predicted_tokens_per_pass": 1020
+    },
+    "analog_configuration": {
+      "clip_type": "global_layer_gaussian_before_tiling",
+      "clip_sigma": 2.5,
+      "tile_size": 512,
+      "adc_dac_bits": 8,
+      "input_resolution": 0.003937007874015748,
+      "output_resolution": 0.003937007874015748,
+      "programming_noise_model": "fixed_additive_gaussian_weight_domain",
+      "programming_noise_std": 0.023,
+      "programming_noise_reference": "programmed_analog_weight_full_scale",
+      "weight_scaling_omega": 1.0,
+      "weight_scaling_columnwise": true,
+      "forward_input_noise": 0.0,
+      "forward_output_noise": 0.0,
+      "forward_weight_noise": 0.0,
+      "read_noise_enabled": false,
+      "drift_enabled": false,
+      "digital_bias": true
+    }
+  },
+  "requested_config": {
+    "model": {
+      "name": "gpt2",
+      "device": "cpu"
+    },
+    "dataset": {
+      "name": "Salesforce/wikitext",
+      "config": "wikitext-103-raw-v1",
+      "split": "test",
+      "max_tokens": 1024,
+      "sequence_length": 256,
+      "stride": 256,
+      "batch_size": 1,
+      "document_separator": "\n\n",
+      "drop_incomplete_final_sequence": true
+    },
+    "profiling": {
+      "include_lm_head": true,
+      "clip_sigma": 2.5,
+      "tile_size": 512,
+      "adc_dac_bits": 8,
+      "programming_noise_std": 0.023,
+      "weight_scaling_omega": 1.0,
+      "weight_scaling_columnwise": true,
+      "num_seeds": 1,
+      "seed_stride": 1,
+      "profile_blocks": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ]
+    },
+    "experiment": {
+      "seed": 42,
+      "save_dir": "./data/results/phase1_sensitivity",
+      "results_filename_prefix": "programming_noise_sensitivity"
+    }
+  },
+  "results": {
+    "digital_perplexity": 49.74074172750488,
+    "projections": [
+      {
+        "block_id": "block_0",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_0/attn.c_attn",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 50.18610348557296,
+        "sensitivity_mean": 0.4453617580680742,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.4453617580680742
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.023004015436546316,
+        "programming_error_normalized_rms_mean": 0.0230039456859231,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.0230039456859231
+        ],
+        "weight_std_before_clipping": 0.1996195763349533,
+        "clip_threshold": 0.49904894083738327,
+        "clipped_weight_fraction": 0.0316535085439682,
+        "programmed_abs_max_before_mapping": 0.49904894828796387,
+        "programmed_peak_to_peak_before_mapping": 0.9980978965759277,
+        "analog_tile_count": 10.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_0",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_0/attn.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 59.88418649006408,
+        "sensitivity_mean": 10.143444762559199,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          10.143444762559199
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.023030675061193384,
+        "programming_error_normalized_rms_mean": 0.023030624724924564,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.023030624724924564
+        ],
+        "weight_std_before_clipping": 0.14746128022670746,
+        "clip_threshold": 0.36865320056676865,
+        "clipped_weight_fraction": 0.0374874547123909,
+        "programmed_abs_max_before_mapping": 0.36865320801734924,
+        "programmed_peak_to_peak_before_mapping": 0.7373064160346985,
+        "analog_tile_count": 4.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_0",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_0/mlp.c_fc",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.30349912625962,
+        "sensitivity_mean": -0.43724260124526637,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          -0.43724260124526637
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.02299173440690036,
+        "programming_error_normalized_rms_mean": 0.022991690319031477,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.022991690319031477
+        ],
+        "weight_std_before_clipping": 0.14116926491260529,
+        "clip_threshold": 0.3529231622815132,
+        "clipped_weight_fraction": 0.02316792868077755,
+        "programmed_abs_max_before_mapping": 0.3529231548309326,
+        "programmed_peak_to_peak_before_mapping": 0.7058463096618652,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_0",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_0/mlp.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 50.690140311772254,
+        "sensitivity_mean": 0.9493985842673709,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.9493985842673709
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.02299173440690036,
+        "programming_error_normalized_rms_mean": 0.022991690319031477,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.022991690319031477
+        ],
+        "weight_std_before_clipping": 0.0879654660820961,
+        "clip_threshold": 0.21991366520524025,
+        "clipped_weight_fraction": 0.013278113678097725,
+        "programmed_abs_max_before_mapping": 0.21991366147994995,
+        "programmed_peak_to_peak_before_mapping": 0.4398273229598999,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_1",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_1/attn.c_attn",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.43558890622131,
+        "sensitivity_mean": -0.3051528212835706,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          -0.3051528212835706
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.023004015436546316,
+        "programming_error_normalized_rms_mean": 0.0230039456859231,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.0230039456859231
+        ],
+        "weight_std_before_clipping": 0.1400582194328308,
+        "clip_threshold": 0.350145548582077,
+        "clipped_weight_fraction": 0.029148243367671967,
+        "programmed_abs_max_before_mapping": 0.350145548582077,
+        "programmed_peak_to_peak_before_mapping": 0.700291097164154,
+        "analog_tile_count": 10.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_1",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_1/attn.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.80361696430069,
+        "sensitivity_mean": 0.06287523679580431,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.06287523679580431
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.023030675061193384,
+        "programming_error_normalized_rms_mean": 0.023030624724924564,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.023030624724924564
+        ],
+        "weight_std_before_clipping": 0.10191776603460312,
+        "clip_threshold": 0.2547944150865078,
+        "clipped_weight_fraction": 0.009311252273619175,
+        "programmed_abs_max_before_mapping": 0.2547944188117981,
+        "programmed_peak_to_peak_before_mapping": 0.5095888376235962,
+        "analog_tile_count": 4.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_1",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_1/mlp.c_fc",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.696254367808656,
+        "sensitivity_mean": -0.04448735969622675,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          -0.04448735969622675
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.022991734266251604,
+        "programming_error_normalized_rms_mean": 0.022991690163811047,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.022991690163811047
+        ],
+        "weight_std_before_clipping": 0.13072055578231812,
+        "clip_threshold": 0.3268013894557953,
+        "clipped_weight_fraction": 0.019067976623773575,
+        "programmed_abs_max_before_mapping": 0.3268013894557953,
+        "programmed_peak_to_peak_before_mapping": 0.6536027789115906,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_1",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_1/mlp.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 50.49431794925246,
+        "sensitivity_mean": 0.7535762217475792,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.7535762217475792
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.022991734266251604,
+        "programming_error_normalized_rms_mean": 0.022991690163811047,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.022991690163811047
+        ],
+        "weight_std_before_clipping": 0.08719104528427124,
+        "clip_threshold": 0.2179776132106781,
+        "clipped_weight_fraction": 0.0136197404935956,
+        "programmed_abs_max_before_mapping": 0.2179776132106781,
+        "programmed_peak_to_peak_before_mapping": 0.4359552264213562,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_2",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_2/attn.c_attn",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 50.78802731617407,
+        "sensitivity_mean": 1.0472855886691903,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          1.0472855886691903
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.023004015530262094,
+        "programming_error_normalized_rms_mean": 0.0230039456859231,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.0230039456859231
+        ],
+        "weight_std_before_clipping": 0.15266866981983185,
+        "clip_threshold": 0.3816716745495796,
+        "clipped_weight_fraction": 0.027156688272953033,
+        "programmed_abs_max_before_mapping": 0.381671667098999,
+        "programmed_peak_to_peak_before_mapping": 0.763343334197998,
+        "analog_tile_count": 10.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_2",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_2/attn.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.99171278307824,
+        "sensitivity_mean": 0.2509710555733591,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.2509710555733591
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.023030675061193384,
+        "programming_error_normalized_rms_mean": 0.023030624724924564,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.023030624724924564
+        ],
+        "weight_std_before_clipping": 0.08103540539741516,
+        "clip_threshold": 0.2025885134935379,
+        "clipped_weight_fraction": 0.01514350064098835,
+        "programmed_abs_max_before_mapping": 0.2025885134935379,
+        "programmed_peak_to_peak_before_mapping": 0.4051770269870758,
+        "analog_tile_count": 4.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_2",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_2/mlp.c_fc",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 52.17410335466212,
+        "sensitivity_mean": 2.4333616271572396,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          2.4333616271572396
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.022991734547549124,
+        "programming_error_normalized_rms_mean": 0.022991690474251907,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.022991690474251907
+        ],
+        "weight_std_before_clipping": 0.13352686166763306,
+        "clip_threshold": 0.33381715416908264,
+        "clipped_weight_fraction": 0.015977224335074425,
+        "programmed_abs_max_before_mapping": 0.33381715416908264,
+        "programmed_peak_to_peak_before_mapping": 0.6676343083381653,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_2",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_2/mlp.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 50.07893122393718,
+        "sensitivity_mean": 0.33818949643229956,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.33818949643229956
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.022991734477224742,
+        "programming_error_normalized_rms_mean": 0.022991690474251907,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.022991690474251907
+        ],
+        "weight_std_before_clipping": 0.09308748692274094,
+        "clip_threshold": 0.23271871730685234,
+        "clipped_weight_fraction": 0.014124976471066475,
+        "programmed_abs_max_before_mapping": 0.23271872103214264,
+        "programmed_peak_to_peak_before_mapping": 0.4654374420642853,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_3",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_3/attn.c_attn",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 50.35555131700937,
+        "sensitivity_mean": 0.6148095895044889,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.6148095895044889
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.023004015530262094,
+        "programming_error_normalized_rms_mean": 0.023003945872187615,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.023003945872187615
+        ],
+        "weight_std_before_clipping": 0.14180739223957062,
+        "clip_threshold": 0.35451848059892654,
+        "clipped_weight_fraction": 0.019593415781855583,
+        "programmed_abs_max_before_mapping": 0.35451847314834595,
+        "programmed_peak_to_peak_before_mapping": 0.7090369462966919,
+        "analog_tile_count": 10.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_3",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_3/attn.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.83354276562446,
+        "sensitivity_mean": 0.09280103811957474,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.09280103811957474
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.023030675061193384,
+        "programming_error_normalized_rms_mean": 0.023030624724924564,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.023030624724924564
+        ],
+        "weight_std_before_clipping": 0.08412503451108932,
+        "clip_threshold": 0.2103125862777233,
+        "clipped_weight_fraction": 0.01770697720348835,
+        "programmed_abs_max_before_mapping": 0.2103125900030136,
+        "programmed_peak_to_peak_before_mapping": 0.4206251800060272,
+        "analog_tile_count": 4.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_3",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_3/mlp.c_fc",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.50355450005974,
+        "sensitivity_mean": -0.23718722744514054,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          -0.23718722744514054
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.022991734336575982,
+        "programming_error_normalized_rms_mean": 0.022991690163811047,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.022991690163811047
+        ],
+        "weight_std_before_clipping": 0.12953026592731476,
+        "clip_threshold": 0.3238256648182869,
+        "clipped_weight_fraction": 0.015856001526117325,
+        "programmed_abs_max_before_mapping": 0.3238256573677063,
+        "programmed_peak_to_peak_before_mapping": 0.6476513147354126,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_3",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_3/mlp.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.62677887994619,
+        "sensitivity_mean": -0.11396284755869601,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          -0.11396284755869601
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.02299173440690036,
+        "programming_error_normalized_rms_mean": 0.022991690319031477,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.022991690319031477
+        ],
+        "weight_std_before_clipping": 0.09180602431297302,
+        "clip_threshold": 0.22951506078243256,
+        "clipped_weight_fraction": 0.0140597028657794,
+        "programmed_abs_max_before_mapping": 0.22951506078243256,
+        "programmed_peak_to_peak_before_mapping": 0.4590301215648651,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_4",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_4/attn.c_attn",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 50.751396248512776,
+        "sensitivity_mean": 1.0106545210078934,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          1.0106545210078934
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.02300401534283053,
+        "programming_error_normalized_rms_mean": 0.0230039456859231,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.0230039456859231
+        ],
+        "weight_std_before_clipping": 0.14643776416778564,
+        "clip_threshold": 0.3660944104194641,
+        "clipped_weight_fraction": 0.0201144739985466,
+        "programmed_abs_max_before_mapping": 0.3660944104194641,
+        "programmed_peak_to_peak_before_mapping": 0.7321888208389282,
+        "analog_tile_count": 10.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_4",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_4/attn.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.83070619972055,
+        "sensitivity_mean": 0.08996447221566939,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.08996447221566939
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.02303067534201528,
+        "programming_error_normalized_rms_mean": 0.02303062519058585,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.02303062519058585
+        ],
+        "weight_std_before_clipping": 0.0929790660738945,
+        "clip_threshold": 0.23244766518473625,
+        "clipped_weight_fraction": 0.0183851458132267,
+        "programmed_abs_max_before_mapping": 0.23244766891002655,
+        "programmed_peak_to_peak_before_mapping": 0.4648953378200531,
+        "analog_tile_count": 4.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_4",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_4/mlp.c_fc",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 50.283092079264456,
+        "sensitivity_mean": 0.5423503517595734,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.5423503517595734
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.022991734266251604,
+        "programming_error_normalized_rms_mean": 0.02299169000859062,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.02299169000859062
+        ],
+        "weight_std_before_clipping": 0.12971317768096924,
+        "clip_threshold": 0.3242829442024231,
+        "clipped_weight_fraction": 0.0163692906498909,
+        "programmed_abs_max_before_mapping": 0.3242829442024231,
+        "programmed_peak_to_peak_before_mapping": 0.6485658884048462,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_4",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_4/mlp.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.8665122335608,
+        "sensitivity_mean": 0.12577050605591467,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.12577050605591467
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.022991734547549124,
+        "programming_error_normalized_rms_mean": 0.022991690474251907,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.022991690474251907
+        ],
+        "weight_std_before_clipping": 0.09099911153316498,
+        "clip_threshold": 0.22749777883291245,
+        "clipped_weight_fraction": 0.0147391427308321,
+        "programmed_abs_max_before_mapping": 0.22749778628349304,
+        "programmed_peak_to_peak_before_mapping": 0.4549955725669861,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_5",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_5/attn.c_attn",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 50.75238543934786,
+        "sensitivity_mean": 1.0116437118429786,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          1.0116437118429786
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.023004015530262094,
+        "programming_error_normalized_rms_mean": 0.023003945872187615,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.023003945872187615
+        ],
+        "weight_std_before_clipping": 0.12801267206668854,
+        "clip_threshold": 0.32003168016672134,
+        "clipped_weight_fraction": 0.018021760508418083,
+        "programmed_abs_max_before_mapping": 0.32003167271614075,
+        "programmed_peak_to_peak_before_mapping": 0.6400633454322815,
+        "analog_tile_count": 10.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_5",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_5/attn.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.71063165229053,
+        "sensitivity_mean": -0.030110075214352605,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          -0.030110075214352605
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.023030675061193384,
+        "programming_error_normalized_rms_mean": 0.023030624724924564,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.023030624724924564
+        ],
+        "weight_std_before_clipping": 0.09377478063106537,
+        "clip_threshold": 0.23443695157766342,
+        "clipped_weight_fraction": 0.015560573898255825,
+        "programmed_abs_max_before_mapping": 0.23443695902824402,
+        "programmed_peak_to_peak_before_mapping": 0.46887391805648804,
+        "analog_tile_count": 4.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_5",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_5/mlp.c_fc",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.84316155957702,
+        "sensitivity_mean": 0.10241983207213678,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.10241983207213678
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.022991734477224742,
+        "programming_error_normalized_rms_mean": 0.022991690474251907,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.022991690474251907
+        ],
+        "weight_std_before_clipping": 0.1267070174217224,
+        "clip_threshold": 0.31676754355430603,
+        "clipped_weight_fraction": 0.016031477600336075,
+        "programmed_abs_max_before_mapping": 0.31676754355430603,
+        "programmed_peak_to_peak_before_mapping": 0.6335350871086121,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_5",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_5/mlp.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.88400714453175,
+        "sensitivity_mean": 0.14326541702686768,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.14326541702686768
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.022991734336575982,
+        "programming_error_normalized_rms_mean": 0.022991690319031477,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.022991690319031477
+        ],
+        "weight_std_before_clipping": 0.09735692292451859,
+        "clip_threshold": 0.24339230731129646,
+        "clipped_weight_fraction": 0.01580810546875,
+        "programmed_abs_max_before_mapping": 0.24339230358600616,
+        "programmed_peak_to_peak_before_mapping": 0.48678460717201233,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_6",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_6/attn.c_attn",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 51.23651127606791,
+        "sensitivity_mean": 1.4957695485630254,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          1.4957695485630254
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.02300401524911475,
+        "programming_error_normalized_rms_mean": 0.023003945499658583,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.023003945499658583
+        ],
+        "weight_std_before_clipping": 0.126860111951828,
+        "clip_threshold": 0.31715027987957,
+        "clipped_weight_fraction": 0.016112716868519783,
+        "programmed_abs_max_before_mapping": 0.3171502947807312,
+        "programmed_peak_to_peak_before_mapping": 0.6343005895614624,
+        "analog_tile_count": 10.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_6",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_6/attn.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.753189428029565,
+        "sensitivity_mean": 0.012447700524681693,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.012447700524681693
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.023030675061193384,
+        "programming_error_normalized_rms_mean": 0.023030624724924564,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.023030624724924564
+        ],
+        "weight_std_before_clipping": 0.11368982493877411,
+        "clip_threshold": 0.28422456234693527,
+        "clipped_weight_fraction": 0.0167422816157341,
+        "programmed_abs_max_before_mapping": 0.28422456979751587,
+        "programmed_peak_to_peak_before_mapping": 0.5684491395950317,
+        "analog_tile_count": 4.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_6",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_6/mlp.c_fc",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.753076738352256,
+        "sensitivity_mean": 0.012335010847372985,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.012335010847372985
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.022991734477224742,
+        "programming_error_normalized_rms_mean": 0.022991690319031477,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.022991690319031477
+        ],
+        "weight_std_before_clipping": 0.12635646760463715,
+        "clip_threshold": 0.31589116901159286,
+        "clipped_weight_fraction": 0.015553792007267475,
+        "programmed_abs_max_before_mapping": 0.31589117646217346,
+        "programmed_peak_to_peak_before_mapping": 0.6317823529243469,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_6",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_6/mlp.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 50.00922777250305,
+        "sensitivity_mean": 0.26848604499816986,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.26848604499816986
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.022991734195927222,
+        "programming_error_normalized_rms_mean": 0.02299169000859062,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.02299169000859062
+        ],
+        "weight_std_before_clipping": 0.1073317900300026,
+        "clip_threshold": 0.2683294750750065,
+        "clipped_weight_fraction": 0.015650855377316475,
+        "programmed_abs_max_before_mapping": 0.2683294713497162,
+        "programmed_peak_to_peak_before_mapping": 0.5366589426994324,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_7",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_7/attn.c_attn",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 50.467177788762754,
+        "sensitivity_mean": 0.7264360612578713,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.7264360612578713
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.023004015530262094,
+        "programming_error_normalized_rms_mean": 0.023003945872187615,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.023003945872187615
+        ],
+        "weight_std_before_clipping": 0.1289859116077423,
+        "clip_threshold": 0.3224647790193558,
+        "clipped_weight_fraction": 0.015702424570918083,
+        "programmed_abs_max_before_mapping": 0.3224647641181946,
+        "programmed_peak_to_peak_before_mapping": 0.6449295282363892,
+        "analog_tile_count": 10.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_7",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_7/attn.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.9746924363324,
+        "sensitivity_mean": 0.23395070882751412,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.23395070882751412
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.02303067534201528,
+        "programming_error_normalized_rms_mean": 0.02303062519058585,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.02303062519058585
+        ],
+        "weight_std_before_clipping": 0.1139172911643982,
+        "clip_threshold": 0.2847932279109955,
+        "clipped_weight_fraction": 0.0164031982421875,
+        "programmed_abs_max_before_mapping": 0.2847932279109955,
+        "programmed_peak_to_peak_before_mapping": 0.569586455821991,
+        "analog_tile_count": 4.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_7",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_7/mlp.c_fc",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.57112010294275,
+        "sensitivity_mean": -0.16962162456213292,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          -0.16962162456213292
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.022991734477224742,
+        "programming_error_normalized_rms_mean": 0.022991690319031477,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.022991690319031477
+        ],
+        "weight_std_before_clipping": 0.12642335891723633,
+        "clip_threshold": 0.3160583972930908,
+        "clipped_weight_fraction": 0.0145272146910429,
+        "programmed_abs_max_before_mapping": 0.3160583972930908,
+        "programmed_peak_to_peak_before_mapping": 0.6321167945861816,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_7",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_7/mlp.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.9677316436509,
+        "sensitivity_mean": 0.22698991614601738,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.22698991614601738
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.022991734617873502,
+        "programming_error_normalized_rms_mean": 0.022991690319031477,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.022991690319031477
+        ],
+        "weight_std_before_clipping": 0.11873490363359451,
+        "clip_threshold": 0.2968372590839863,
+        "clipped_weight_fraction": 0.015530056320130825,
+        "programmed_abs_max_before_mapping": 0.2968372702598572,
+        "programmed_peak_to_peak_before_mapping": 0.5936745405197144,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_8",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_8/attn.c_attn",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 50.489331129437204,
+        "sensitivity_mean": 0.7485894019323212,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.7485894019323212
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.023004015530262094,
+        "programming_error_normalized_rms_mean": 0.023003945872187615,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.023003945872187615
+        ],
+        "weight_std_before_clipping": 0.12693066895008087,
+        "clip_threshold": 0.3173266723752022,
+        "clipped_weight_fraction": 0.014464201405644417,
+        "programmed_abs_max_before_mapping": 0.3173266649246216,
+        "programmed_peak_to_peak_before_mapping": 0.6346533298492432,
+        "analog_tile_count": 10.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_8",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_8/attn.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.85659473572148,
+        "sensitivity_mean": 0.11585300821659672,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.11585300821659672
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.023030675061193384,
+        "programming_error_normalized_rms_mean": 0.023030624724924564,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.023030624724924564
+        ],
+        "weight_std_before_clipping": 0.12236353754997253,
+        "clip_threshold": 0.30590884387493134,
+        "clipped_weight_fraction": 0.01505194790661335,
+        "programmed_abs_max_before_mapping": 0.30590885877609253,
+        "programmed_peak_to_peak_before_mapping": 0.6118177175521851,
+        "analog_tile_count": 4.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_8",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_8/mlp.c_fc",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 50.1486840033292,
+        "sensitivity_mean": 0.4079422758243183,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.4079422758243183
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.022991734336575982,
+        "programming_error_normalized_rms_mean": 0.022991690163811047,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.022991690163811047
+        ],
+        "weight_std_before_clipping": 0.12728071212768555,
+        "clip_threshold": 0.31820178031921387,
+        "clipped_weight_fraction": 0.014109717682003975,
+        "programmed_abs_max_before_mapping": 0.31820178031921387,
+        "programmed_peak_to_peak_before_mapping": 0.6364035606384277,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_8",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_8/mlp.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.797885068728334,
+        "sensitivity_mean": 0.057143341223451216,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.057143341223451216
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.022991734266251604,
+        "programming_error_normalized_rms_mean": 0.022991690163811047,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.022991690163811047
+        ],
+        "weight_std_before_clipping": 0.13540393114089966,
+        "clip_threshold": 0.33850982785224915,
+        "clipped_weight_fraction": 0.0159589983522892,
+        "programmed_abs_max_before_mapping": 0.33850982785224915,
+        "programmed_peak_to_peak_before_mapping": 0.6770196557044983,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_9",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_9/attn.c_attn",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 50.04246559291725,
+        "sensitivity_mean": 0.3017238654123702,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.3017238654123702
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.023004015436546316,
+        "programming_error_normalized_rms_mean": 0.023003945872187615,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.023003945872187615
+        ],
+        "weight_std_before_clipping": 0.12621702253818512,
+        "clip_threshold": 0.3155425563454628,
+        "clipped_weight_fraction": 0.014611703343689442,
+        "programmed_abs_max_before_mapping": 0.3155425488948822,
+        "programmed_peak_to_peak_before_mapping": 0.6310850977897644,
+        "analog_tile_count": 10.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_9",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_9/attn.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.84020858841964,
+        "sensitivity_mean": 0.09946686091475954,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.09946686091475954
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.02303067534201528,
+        "programming_error_normalized_rms_mean": 0.02303062519058585,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.02303062519058585
+        ],
+        "weight_std_before_clipping": 0.13681954145431519,
+        "clip_threshold": 0.34204885363578796,
+        "clipped_weight_fraction": 0.01595560647547245,
+        "programmed_abs_max_before_mapping": 0.34204885363578796,
+        "programmed_peak_to_peak_before_mapping": 0.6840977072715759,
+        "analog_tile_count": 4.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_9",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_9/mlp.c_fc",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.59692107552229,
+        "sensitivity_mean": -0.14382065198259397,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          -0.14382065198259397
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.02299173440690036,
+        "programming_error_normalized_rms_mean": 0.022991690319031477,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.022991690319031477
+        ],
+        "weight_std_before_clipping": 0.12761934101581573,
+        "clip_threshold": 0.31904835253953934,
+        "clipped_weight_fraction": 0.013835906982421875,
+        "programmed_abs_max_before_mapping": 0.31904834508895874,
+        "programmed_peak_to_peak_before_mapping": 0.6380966901779175,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_9",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_9/mlp.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.6307161161888,
+        "sensitivity_mean": -0.11002561131608246,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          -0.11002561131608246
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.022991734195927222,
+        "programming_error_normalized_rms_mean": 0.022991690319031477,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.022991690319031477
+        ],
+        "weight_std_before_clipping": 0.15587382018566132,
+        "clip_threshold": 0.3896845504641533,
+        "clipped_weight_fraction": 0.0162014439702034,
+        "programmed_abs_max_before_mapping": 0.3896845579147339,
+        "programmed_peak_to_peak_before_mapping": 0.7793691158294678,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_10",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_10/attn.c_attn",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 48.93838789818367,
+        "sensitivity_mean": -0.8023538293212127,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          -0.8023538293212127
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.023004015436546316,
+        "programming_error_normalized_rms_mean": 0.0230039456859231,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.0230039456859231
+        ],
+        "weight_std_before_clipping": 0.1266735941171646,
+        "clip_threshold": 0.31668398529291153,
+        "clipped_weight_fraction": 0.015614827163517475,
+        "programmed_abs_max_before_mapping": 0.31668397784233093,
+        "programmed_peak_to_peak_before_mapping": 0.6333679556846619,
+        "analog_tile_count": 10.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_10",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_10/attn.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.9562307384645,
+        "sensitivity_mean": 0.21548901095961526,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.21548901095961526
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.023030675061193384,
+        "programming_error_normalized_rms_mean": 0.023030624724924564,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.023030624724924564
+        ],
+        "weight_std_before_clipping": 0.14662733674049377,
+        "clip_threshold": 0.36656834185123444,
+        "clipped_weight_fraction": 0.014545016922056675,
+        "programmed_abs_max_before_mapping": 0.36656832695007324,
+        "programmed_peak_to_peak_before_mapping": 0.7331366539001465,
+        "analog_tile_count": 4.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_10",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_10/mlp.c_fc",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 50.065814144399766,
+        "sensitivity_mean": 0.32507241689488353,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.32507241689488353
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.022991734547549124,
+        "programming_error_normalized_rms_mean": 0.022991690629472334,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.022991690629472334
+        ],
+        "weight_std_before_clipping": 0.12764810025691986,
+        "clip_threshold": 0.31912025064229965,
+        "clipped_weight_fraction": 0.0137858921661973,
+        "programmed_abs_max_before_mapping": 0.31912025809288025,
+        "programmed_peak_to_peak_before_mapping": 0.6382405161857605,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_10",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_10/mlp.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.26684931467945,
+        "sensitivity_mean": -0.47389241282543537,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          -0.47389241282543537
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.02299173440690036,
+        "programming_error_normalized_rms_mean": 0.022991690319031477,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.022991690319031477
+        ],
+        "weight_std_before_clipping": 0.17814524471759796,
+        "clip_threshold": 0.4453631117939949,
+        "clipped_weight_fraction": 0.0159132219851017,
+        "programmed_abs_max_before_mapping": 0.4453631043434143,
+        "programmed_peak_to_peak_before_mapping": 0.8907262086868286,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_11",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_11/attn.c_attn",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.39974778919114,
+        "sensitivity_mean": -0.34099393831374414,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          -0.34099393831374414
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.023004015623977875,
+        "programming_error_normalized_rms_mean": 0.02300394605845213,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.02300394605845213
+        ],
+        "weight_std_before_clipping": 0.12847471237182617,
+        "clip_threshold": 0.32118678092956543,
+        "clipped_weight_fraction": 0.019245853647589684,
+        "programmed_abs_max_before_mapping": 0.32118678092956543,
+        "programmed_peak_to_peak_before_mapping": 0.6423735618591309,
+        "analog_tile_count": 10.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_11",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_11/attn.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 53.27959967375822,
+        "sensitivity_mean": 3.538857946253337,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          3.538857946253337
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.023030675061193384,
+        "programming_error_normalized_rms_mean": 0.023030624724924564,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.023030624724924564
+        ],
+        "weight_std_before_clipping": 0.18192650377750397,
+        "clip_threshold": 0.4548162594437599,
+        "clipped_weight_fraction": 0.0104353167116642,
+        "programmed_abs_max_before_mapping": 0.4548162519931793,
+        "programmed_peak_to_peak_before_mapping": 0.9096325039863586,
+        "analog_tile_count": 4.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_11",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_11/mlp.c_fc",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 49.89899194679696,
+        "sensitivity_mean": 0.1582502192920785,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.1582502192920785
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.02299173440690036,
+        "programming_error_normalized_rms_mean": 0.022991690319031477,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.022991690319031477
+        ],
+        "weight_std_before_clipping": 0.13000448048114777,
+        "clip_threshold": 0.3250112012028694,
+        "clipped_weight_fraction": 0.013820224441587925,
+        "programmed_abs_max_before_mapping": 0.3250111937522888,
+        "programmed_peak_to_peak_before_mapping": 0.6500223875045776,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "block_11",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_11/mlp.c_proj",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 51.61700810056557,
+        "sensitivity_mean": 1.8762663730606874,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          1.8762663730606874
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.022991734477224742,
+        "programming_error_normalized_rms_mean": 0.022991690319031477,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.022991690319031477
+        ],
+        "weight_std_before_clipping": 0.19821903109550476,
+        "clip_threshold": 0.4955475777387619,
+        "clipped_weight_fraction": 0.01555718295276165,
+        "programmed_abs_max_before_mapping": 0.4955475926399231,
+        "programmed_peak_to_peak_before_mapping": 0.9910951852798462,
+        "analog_tile_count": 12.0,
+        "programmed_tile_abs_max_mean": 1.0
+      },
+      {
+        "block_id": "head",
+        "proj_name": "lm_head",
+        "projection_label": "head/lm_head",
+        "ppl_clean": 49.74074172750488,
+        "ppl_noisy_mean": 1332.9968353037589,
+        "sensitivity_mean": 1283.256093576254,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          1283.256093576254
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "programming_error_rms_mean": 0.02299769297736959,
+        "programming_error_normalized_rms_mean": 0.02299766256615068,
+        "programming_error_normalized_rms_std": 0.0,
+        "programming_error_normalized_rms_per_seed": [
+          0.02299766256615068
+        ],
+        "weight_std_before_clipping": 0.14369554817676544,
+        "clip_threshold": 0.3592388704419136,
+        "clipped_weight_fraction": 0.014879664406180382,
+        "programmed_abs_max_before_mapping": 0.359238862991333,
+        "programmed_peak_to_peak_before_mapping": 0.718477725982666,
+        "analog_tile_count": 198.0,
+        "programmed_tile_abs_max_mean": 1.0
+      }
+    ]
+  }
+}

@@ -1,0 +1,145 @@
+{
+  "artifacts": {
+    "effective_config": "config.yaml",
+    "metadata": "metadata.json",
+    "tile_summary": "tile_summary.csv",
+    "timestep_summary": "timestep_summary.csv",
+    "trace": "trace.npz"
+  },
+  "config_path": "/Users/hwangweiju/ML_HW_Reasearch/configs/phase2_fidelity/mixed.yaml",
+  "experiment_name": "phase2_mixed",
+  "generated_at_utc": "2026-07-06T21:22:24.072875+00:00",
+  "model_metadata": {
+    "class_code_mapping": {
+      "0": "high",
+      "1": "medium",
+      "2": "low"
+    },
+    "fidelity_model": {
+      "degradation": {
+        "gradual_drift": {
+          "enabled": true,
+          "total_increase_range": [
+            0.05,
+            0.2
+          ]
+        },
+        "localized_fault": {
+          "candidate_classes": [
+            "high",
+            "medium"
+          ],
+          "enabled": true,
+          "make_unavailable": false,
+          "noise_increase_range": [
+            0.3,
+            0.8
+          ],
+          "num_affected_tiles": 4,
+          "onset_timestep_range": [
+            35,
+            70
+          ],
+          "permanent": true
+        },
+        "thermal_variation": {
+          "correlation": 0.94,
+          "enabled": true,
+          "standard_deviation_fraction": 0.025
+        }
+      },
+      "fidelity_classes": {
+        "high": {
+          "fraction": 0.25,
+          "noise_multiplier_range": [
+            0.55,
+            0.8
+          ]
+        },
+        "low": {
+          "fraction": 0.25,
+          "noise_multiplier_range": [
+            1.3,
+            1.7
+          ]
+        },
+        "medium": {
+          "fraction": 0.5,
+          "noise_multiplier_range": [
+            0.9,
+            1.1
+          ]
+        }
+      },
+      "max_noise_std": 0.06,
+      "min_noise_std": 0.005,
+      "num_timesteps": 120,
+      "reference_noise_std": 0.023
+    },
+    "hardware": {
+      "num_thermal_zones": 4,
+      "num_tiles": 64,
+      "tiers_per_tile": 1024,
+      "tile_shape": {
+        "cols": 512,
+        "rows": 512
+      }
+    },
+    "seed": 42,
+    "selected_fault_tile_ids": [
+      11,
+      29,
+      42,
+      60
+    ]
+  },
+  "output_directory": "/Users/hwangweiju/ML_HW_Reasearch/data/results/phase2_fidelity/fidelity_traces/phase2_mixed/seed_42",
+  "phase": "phase2_fidelity",
+  "seed": 42,
+  "summary": {
+    "final_available_tile_count": 64,
+    "final_faulted_tile_count": 4,
+    "final_max_noise_std": 0.04244718346275816,
+    "final_mean_fidelity_score": 0.44202654336686475,
+    "final_mean_noise_std": 0.027110509853486467,
+    "final_min_noise_std": 0.014011246883621514,
+    "final_unavailable_tile_count": 0,
+    "initial_max_noise_std": 0.036937989488227435,
+    "initial_mean_fidelity_score": 0.5014707871198915,
+    "initial_mean_noise_std": 0.023860222587423152,
+    "initial_min_noise_std": 0.0127805944205197,
+    "initial_to_final_rank_correlation": 0.9128205128205126,
+    "mean_noise_change_percent": 13.622200103768344,
+    "num_tiles": 64,
+    "num_timesteps": 120,
+    "scheduled_fault_count": 4,
+    "selected_fault_tile_ids": [
+      11,
+      29,
+      42,
+      60
+    ]
+  },
+  "trace_shapes": {
+    "available": [
+      120,
+      64
+    ],
+    "dynamic_fidelity_class": [
+      120,
+      64
+    ],
+    "faulted": [
+      120,
+      64
+    ],
+    "fidelity_score": [
+      120,
+      64
+    ],
+    "noise_std": [
+      120,
+      64
+    ]
+  }
+}

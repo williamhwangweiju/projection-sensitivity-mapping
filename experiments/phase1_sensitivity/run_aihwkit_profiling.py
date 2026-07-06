@@ -188,26 +188,13 @@ def build_batches(
     return batches, metadata
 
 def aggregate(results: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Return only the fields needed to plot projection sensitivity."""
+    """Preserve sensitivity values and profiler diagnostics."""
     if not results:
         raise ValueError("The profiler returned no projection results.")
 
-    projections = [
-        {
-            "block_id": result["block_id"],
-            "proj_name": result["proj_name"],
-            "projection_label": result["projection_label"],
-            "sensitivity_mean": float(result["sensitivity_mean"]),
-            "sensitivity_std": float(result["sensitivity_std"]),
-            "sensitivity_per_seed": result["sensitivity_per_seed"],
-            "realization_seeds": result["realization_seeds"],
-        }
-        for result in results
-    ]
-
     return {
         "digital_perplexity": float(results[0]["ppl_clean"]),
-        "projections": projections,
+        "projections": [dict(result) for result in results],
     }
 
 def package_versions() -> Dict[str, Any]:
@@ -249,15 +236,7 @@ def save_results(
                 "dtype": str(next(model.parameters()).dtype),
             },
             "dataset": dict(dataset_metadata),
-            "analog_configuration": {
-                "perfect": profiler.perfect,
-                "clip_sigma": profiler.clip_sigma,
-                "tile_size": profiler.tile_size,
-                "adc_dac_bits": profiler.adc_dac_bits,
-                "programming_noise_sigma": profiler.programming_noise_sigma,
-                "weight_scaling_columnwise": True,
-                "noise_type": "ADDITIVE_CONSTANT"
-            },
+            "analog_configuration": profiler.analog_configuration(),
         },
         "requested_config": dict(config),
         "results": dict(results),

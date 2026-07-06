@@ -1,0 +1,50 @@
+experiment:
+  name: phase2_mixed
+  seed: 42
+
+hardware:
+  num_tiles: 64
+  tiers_per_tile: 1024
+  tile_shape:
+    rows: 512
+    cols: 512
+  num_thermal_zones: 4
+
+fidelity_model:
+  num_timesteps: 120
+
+  reference_noise_std: 0.023
+  min_noise_std: 0.005
+  max_noise_std: 0.060
+
+  fidelity_classes:
+    high:
+      fraction: 0.25
+      noise_multiplier_range: [0.55, 0.80]
+
+    medium:
+      fraction: 0.50
+      noise_multiplier_range: [0.90, 1.10]
+
+    low:
+      fraction: 0.25
+      noise_multiplier_range: [1.30, 1.70]
+
+degradation:
+  gradual_drift:
+    enabled: true
+    total_increase_range: [0.05, 0.20]
+
+  thermal_variation:
+    enabled: true
+    correlation: 0.94
+    standard_deviation_fraction: 0.025
+
+  localized_fault:
+    enabled: true
+    num_affected_tiles: 4
+    onset_timestep_range: [35, 70]
+    noise_increase_range: [0.30, 0.80]
+    candidate_classes: [high, medium]
+    permanent: true
+    make_unavailable: false
