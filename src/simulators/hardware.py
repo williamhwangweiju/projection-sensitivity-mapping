@@ -143,7 +143,7 @@ class HardwareConfig:
         return {
             "num_tiles": self.num_tiles,
             "tiers_per_tile": self.tiers_per_tile,
-            "tile_shape": self.tile_geometry.to_dict(),
+            "tier_shape": self.tile_geometry.to_dict(),
             "num_thermal_zones": self.num_thermal_zones,
         }
 
@@ -158,7 +158,7 @@ class HardwareConfig:
             {
                 "num_tiles": 64,
                 "tiers_per_tile": 1024,
-                "tile_shape": {
+                "tier_shape": {
                     "rows": 512,
                     "cols": 512,
                 },
@@ -192,7 +192,7 @@ class HardwareConfig:
 
         raw_shape = _get_required_alias(
             data,
-            canonical_name="tile_shape",
+            canonical_name="tier_shape",
             aliases=("tier_shape",),
         )
         tile_geometry = _parse_tile_geometry(raw_shape)
@@ -576,8 +576,8 @@ def _parse_tile_geometry(raw_shape: Any) -> TileGeometry:
             ) from exc
 
         return TileGeometry(
-            rows=_to_integer("tile_shape.rows", rows),
-            cols=_to_integer("tile_shape.cols", cols),
+            rows=_to_integer("tier_shape.rows", rows),
+            cols=_to_integer("tier_shape.cols", cols),
         )
 
     if (
@@ -586,17 +586,17 @@ def _parse_tile_geometry(raw_shape: Any) -> TileGeometry:
     ):
         if len(raw_shape) != 2:
             raise HardwareConfigurationError(
-                "Tile-shape sequence must contain exactly two values: "
+                "Tier-shape sequence must contain exactly two values: "
                 "[rows, cols]."
             )
 
         return TileGeometry(
-            rows=_to_integer("tile_shape[0]", raw_shape[0]),
-            cols=_to_integer("tile_shape[1]", raw_shape[1]),
+            rows=_to_integer("tier_shape[0]", raw_shape[0]),
+            cols=_to_integer("tier_shape[1]", raw_shape[1]),
         )
 
     raise HardwareConfigurationError(
-        "Tile shape must be either a mapping with rows/cols or a "
+        "Tier shape must be either a mapping with rows/cols or a "
         "two-element sequence."
     )
 

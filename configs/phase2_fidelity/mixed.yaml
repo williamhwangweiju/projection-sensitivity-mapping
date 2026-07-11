@@ -4,8 +4,8 @@ experiment:
 
 hardware:
   num_tiles: 64
-  tiers_per_tile: 1024
-  tile_shape:
+  tiers_per_tile: 16
+  tier_shape:
     rows: 512
     cols: 512
   num_thermal_zones: 4

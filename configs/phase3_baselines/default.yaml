@@ -1,0 +1,28 @@
+experiment:
+  name: phase3_baselines
+  seed: 42
+  output_root: data/results/phase3_baselines
+
+phase1:
+  # Leave null to auto-select latest data/results/phase1_sensitivity/*.json
+  results_path: null
+
+phase2:
+  # Leave null to auto-select latest data/results/phase2_fidelity/.../trace.npz
+  trace_path: null
+  metadata_path: null
+
+phase3:
+  include_lm_head: false
+  # Leave null to use the reference noise in trace metadata.
+  reference_noise_std: null
+  adapter:
+    # Optional global reservation per tile.
+    reserved_tiers_per_tile: 0
+    # Cells used to encode one weight (1 means direct one-cell-per-weight).
+    cells_per_weight: 1
+    # Optional baseline metrics when available from IBM simulator outputs.
+    baseline_latency_ns: null
+    baseline_energy_nj: null
+    communication_latency_ns: null
+    communication_energy_nj: null

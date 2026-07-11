@@ -1,34 +1,36 @@
 #!/usr/bin/env python3
-"""Run GPT-2 projection programming-noise sensitivity profiling.
+"""Run GPT-2 AIHWKit projection-sensitivity profiling.
 
-The runner profiles only the blocks selected in YAML and writes compact,
-plot-ready projection sensitivity results aligned with the IBM Unified Workflow.
+The runner builds fixed-length WikiText batches, executes the AIHWKit profiler,
+and saves a compact JSON profile for Phase 2/3 mapping experiments.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import logging
 import platform
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import datasets
-import numpy as np
 import torch
 import transformers
 import yaml
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+
 def find_repo_root(script_path: Path) -> Path:
+    """Find the repository root from this script location."""
     for candidate in (script_path.resolve().parent, *script_path.resolve().parents):
         if (candidate / "src" / "profilers" / "aihwkit_profiler.py").is_file():
             return candidate
-    raise RuntimeError("Could not find src/profilers/aihwkit_profiler.py")
+    raise RuntimeError("Could not find src/profilers/aihwkit_profiler.py.")
+
 
 REPO_ROOT = find_repo_root(Path(__file__))
 if str(REPO_ROOT) not in sys.path:
@@ -36,49 +38,20 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.profilers.aihwkit_profiler import AIHWKITSensitivityProfiler
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-logger = logging.getLogger(__name__)
-
-DEFAULTS = {
-    "model_name": "gpt2",
-    "device": "cpu",
-    "dataset_name": "Salesforce/wikitext",
-    "dataset_config": "wikitext-103-raw-v1",
-    "dataset_split": "test",
-    "sequence_length": 1024,
-    "stride": 512,
-    "batch_size": 1,
-    "max_tokens": None,
-    "document_separator": "\n\n",
-    "drop_incomplete_final_sequence": True,
-    "seed": 42,
-    "save_dir": "./data/results",
-    "results_prefix": "lammie_2026_aihwkit_stage1_2",
-}
 
 def load_config(path: Path) -> Dict[str, Any]:
+    """Load the experiment YAML configuration."""
     with path.open("r", encoding="utf-8") as stream:
-        return yaml.safe_load(stream) or {}
+        config = yaml.safe_load(stream)
+    if not isinstance(config, dict):
+        raise ValueError("The configuration file must contain a YAML dictionary.")
+    return config
+
 
 def parse_max_tokens(value: Any) -> Optional[int]:
-    if value is None or value == 0:
-        return None
-    if isinstance(value, str) and value.strip().lower() in {"", "all", "none", "null"}:
-        return None
-    return int(value)
+    """Return None for full-dataset evaluation, otherwise an integer cap."""
+    return None if value is None else int(value)
 
-def resolve_device(value: Any) -> str:
-    device = str(value or DEFAULTS["device"]).lower()
-    if device.startswith("cuda") and not torch.cuda.is_available():
-        logger.warning("CUDA is unavailable; using CPU")
-        return "cpu"
-    if device.startswith("mps"):
-        logger.warning("AIHWKIT does not use MPS tiles natively; using CPU")
-        return "cpu"
-    return device
 
 def make_window(
     token_ids: Sequence[int],
@@ -87,19 +60,20 @@ def make_window(
     previous_end: int,
     pad_token_id: int,
 ) -> Tuple[Dict[str, torch.Tensor], int, int]:
+    """Create one fixed-length causal-LM evaluation window."""
     end = min(start + sequence_length, len(token_ids))
-    actual = list(token_ids[start:end])
-    target_length = min(end - previous_end, len(actual))
-    padding = sequence_length - len(actual)
+    tokens = list(token_ids[start:end])
+    target_length = min(end - previous_end, len(tokens))
+    padding = sequence_length - len(tokens)
 
-    input_ids = actual + [pad_token_id] * padding
-    attention_mask = [1] * len(actual) + [0] * padding
+    input_ids = tokens + [pad_token_id] * padding
+    attention_mask = [1] * len(tokens) + [0] * padding
     labels = list(input_ids)
 
-    # Ignore overlap already scored by the previous window.
-    for index in range(len(actual) - target_length):
+    # Ignore overlapping context and padding so each token is scored once.
+    for index in range(len(tokens) - target_length):
         labels[index] = -100
-    for index in range(len(actual), sequence_length):
+    for index in range(len(tokens), sequence_length):
         labels[index] = -100
 
     batch = {
@@ -110,24 +84,32 @@ def make_window(
     valid_targets = int((batch["labels"][1:] != -100).sum().item())
     return batch, end, valid_targets
 
+
 def build_batches(
     config: Mapping[str, Any],
     tokenizer: Any,
 ) -> Tuple[List[Dict[str, torch.Tensor]], Dict[str, Any]]:
-    dataset_cfg = config.get("dataset", {})
+    """Tokenize the configured dataset into fixed-length evaluation batches."""
+    dataset_cfg = config["dataset"]
 
-    dataset_name = dataset_cfg.get("name", DEFAULTS["dataset_name"])
-    dataset_config = dataset_cfg.get("config", DEFAULTS["dataset_config"])
-    dataset_split = dataset_cfg.get("split", DEFAULTS["dataset_split"])
-    sequence_length = int(dataset_cfg.get("sequence_length", DEFAULTS["sequence_length"]))
-    stride = int(dataset_cfg.get("stride", DEFAULTS["stride"]))
-    batch_size = int(dataset_cfg.get("batch_size", DEFAULTS["batch_size"]))
-    max_tokens = parse_max_tokens(dataset_cfg.get("max_tokens", DEFAULTS["max_tokens"]))
-    separator = str(dataset_cfg.get("document_separator", DEFAULTS["document_separator"]))
-    drop_incomplete = bool(dataset_cfg.get("drop_incomplete_final_sequence", DEFAULTS["drop_incomplete_final_sequence"]))
+    dataset_name = str(dataset_cfg["name"])
+    dataset_config = str(dataset_cfg["config"])
+    dataset_split = str(dataset_cfg["split"])
+    sequence_length = int(dataset_cfg["sequence_length"])
+    stride = int(dataset_cfg["stride"])
+    batch_size = int(dataset_cfg["batch_size"])
+    max_tokens = parse_max_tokens(dataset_cfg["max_tokens"])
+    separator = str(dataset_cfg["document_separator"])
+    drop_incomplete = bool(dataset_cfg["drop_incomplete_final_sequence"])
 
-    logger.info("Loading %s/%s split=%s", dataset_name, dataset_config, dataset_split)
-    raw_dataset = load_dataset(str(dataset_name), str(dataset_config), split=str(dataset_split))
+    if sequence_length < 2:
+        raise ValueError("sequence_length must be at least 2.")
+    if stride <= 0:
+        raise ValueError("stride must be positive.")
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive.")
+
+    raw_dataset = load_dataset(dataset_name, dataset_config, split=dataset_split)
 
     token_ids: List[int] = []
     for sample in raw_dataset:
@@ -136,7 +118,7 @@ def build_batches(
             continue
         token_ids.extend(tokenizer.encode(text + separator, add_special_tokens=False))
         if max_tokens is not None and len(token_ids) >= max_tokens:
-            del token_ids[max_tokens:]
+            token_ids = token_ids[:max_tokens]
             break
 
     windows: List[Dict[str, torch.Tensor]] = []
@@ -152,7 +134,11 @@ def build_batches(
             break
 
         window, end, valid_targets = make_window(
-            token_ids, start, sequence_length, previous_end, int(tokenizer.pad_token_id)
+            token_ids=token_ids,
+            start=start,
+            sequence_length=sequence_length,
+            previous_end=previous_end,
+            pad_token_id=int(tokenizer.pad_token_id),
         )
         windows.append(window)
         predicted_tokens += valid_targets
@@ -162,9 +148,14 @@ def build_batches(
             break
         start += stride
 
+    if not windows:
+        raise ValueError("Dataset preprocessing produced no evaluation windows.")
+
     batches = [
         {
-            key: torch.stack([item[key] for item in windows[index:index + batch_size]])
+            key: torch.stack(
+                [window[key] for window in windows[index : index + batch_size]]
+            )
             for key in ("input_ids", "attention_mask", "labels")
         }
         for index in range(0, len(windows), batch_size)
@@ -178,27 +169,30 @@ def build_batches(
         "stride": stride,
         "batch_size": batch_size,
         "max_tokens": max_tokens,
+        "document_separator": separator,
+        "drop_incomplete_final_sequence": drop_incomplete,
         "collected_tokens": len(token_ids),
         "num_windows": len(windows),
         "num_batches": len(batches),
         "predicted_tokens_per_pass": predicted_tokens,
     }
-    
-    logger.info("Prepared %d tokens, %d windows, %d batches", len(token_ids), len(windows), len(batches))
     return batches, metadata
 
+
 def aggregate(results: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Preserve sensitivity values and profiler diagnostics."""
+    """Package profiler outputs in the JSON structure used downstream."""
     if not results:
         raise ValueError("The profiler returned no projection results.")
-
     return {
         "digital_perplexity": float(results[0]["ppl_clean"]),
         "projections": [dict(result) for result in results],
     }
 
+
 def package_versions() -> Dict[str, Any]:
+    """Record software versions needed to reproduce the run."""
     import aihwkit
+
     return {
         "python": platform.python_version(),
         "torch": torch.__version__,
@@ -207,6 +201,7 @@ def package_versions() -> Dict[str, Any]:
         "aihwkit": getattr(aihwkit, "__version__", None),
     }
 
+
 def save_results(
     config: Mapping[str, Any],
     model: Any,
@@ -214,14 +209,16 @@ def save_results(
     profiler: AIHWKITSensitivityProfiler,
     results: Mapping[str, Any],
 ) -> Path:
-    experiment_cfg = config.get("experiment", {})
-    save_dir = Path(experiment_cfg.get("save_dir", DEFAULTS["save_dir"]))
+    """Write the sensitivity profile JSON."""
+    experiment_cfg = config["experiment"]
+    save_dir = Path(experiment_cfg["save_dir"])
     if not save_dir.is_absolute():
         save_dir = REPO_ROOT / save_dir
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    prefix = experiment_cfg.get("results_filename_prefix", DEFAULTS["results_prefix"])
-    output_path = save_dir / f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    prefix = str(experiment_cfg["results_filename_prefix"])
+    output_path = save_dir / f"{prefix}_{timestamp}.json"
 
     payload = {
         "metadata": {
@@ -241,18 +238,35 @@ def save_results(
         "requested_config": dict(config),
         "results": dict(results),
     }
+
     with output_path.open("w", encoding="utf-8") as stream:
         json.dump(payload, stream, indent=2, allow_nan=False)
     return output_path
 
-def main(config_path: Path) -> Path:
-    config = load_config(config_path)
-    model_cfg = config.get("model", {})
-    
-    model_name = str(model_cfg.get("name", DEFAULTS["model_name"]))
-    device = resolve_device(model_cfg.get("device", DEFAULTS["device"]))
 
-    logger.info("Loading tokenizer and model: %s", model_name)
+def run_phase1_analysis(results_file: Path) -> None:
+    """Run analyze_phase1.py for the newly created profiling result."""
+    analyze_script = REPO_ROOT / "experiments" / "phase1_sensitivity" / "analyze_phase1.py"
+    if not analyze_script.is_file():
+        raise FileNotFoundError(f"Phase 1 analyzer script not found: {analyze_script}")
+
+    command = [
+        sys.executable,
+        str(analyze_script),
+        "--results-file",
+        str(results_file),
+        "--output-dir",
+        str(results_file.parent),
+    ]
+    subprocess.run(command, check=True)
+
+
+def main(config_path: Path) -> Path:
+    """Run the full Phase 1 sensitivity profiling workflow."""
+    config = load_config(config_path)
+    model_cfg = config["model"]
+
+    model_name = str(model_cfg["name"])
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -264,7 +278,6 @@ def main(config_path: Path) -> Path:
     model.eval()
 
     batches, dataset_metadata = build_batches(config, tokenizer)
-
     profiler = AIHWKITSensitivityProfiler(
         model=model,
         tokenizer=tokenizer,
@@ -273,20 +286,22 @@ def main(config_path: Path) -> Path:
 
     projection_results = profiler.profile_all(batches)
     results = aggregate(projection_results)
-
     output_path = save_results(
-        config,
-        model,
-        dataset_metadata,
-        profiler,
-        results,
+        config=config,
+        model=model,
+        dataset_metadata=dataset_metadata,
+        profiler=profiler,
+        results=results,
     )
 
     print("\nAIHWKIT PROFILING COMPLETE")
     print(f"Digital FP32 perplexity: {results['digital_perplexity']:.6f}")
     print(f"Profiled projections: {len(results['projections'])}")
     print(f"Results saved to: {output_path}")
+    print("\nRunning Phase 1 analysis...")
+    run_phase1_analysis(output_path)
     return output_path
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

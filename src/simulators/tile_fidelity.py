@@ -899,6 +899,116 @@ class TileFidelityTrace:
 
         return path
 
+    @classmethod
+    def load_npz(cls, input_path: str | Path) -> TileFidelityTrace:
+        """Load a previously saved trace from a compressed NPZ file."""
+        path = Path(input_path).expanduser().resolve()
+
+        if not path.exists():
+            raise FileNotFoundError(f"Trace file does not exist: {path}")
+
+        with np.load(path, allow_pickle=False) as data:
+            required_arrays = (
+                "timesteps",
+                "tile_ids",
+                "noise_std",
+                "fidelity_score",
+                "dynamic_fidelity_class",
+                "available",
+                "faulted",
+                "base_noise_std",
+                "drift_rate",
+                "initial_fidelity_class",
+                "thermal_zone",
+                "fault_onset_timestep",
+                "fault_noise_increase_fraction",
+            )
+
+            missing = [
+                array_name
+                for array_name in required_arrays
+                if array_name not in data.files
+            ]
+            if missing:
+                missing_text = ", ".join(sorted(missing))
+                raise FidelityConfigurationError(
+                    f"Trace NPZ is missing required arrays: {missing_text}."
+                )
+
+            metadata: dict[str, Any]
+            if "metadata_json" in data.files:
+                raw_metadata = data["metadata_json"]
+                if isinstance(raw_metadata, np.ndarray):
+                    if raw_metadata.shape == ():
+                        raw_metadata = raw_metadata.item()
+                    else:
+                        raw_metadata = "".join(str(item) for item in raw_metadata.tolist())
+
+                if not isinstance(raw_metadata, str):
+                    raise FidelityConfigurationError(
+                        "Trace metadata_json must contain a JSON string."
+                    )
+
+                parsed_metadata = json.loads(raw_metadata)
+                if not isinstance(parsed_metadata, Mapping):
+                    raise FidelityConfigurationError(
+                        "Trace metadata_json must decode to a JSON mapping."
+                    )
+                metadata = dict(parsed_metadata)
+            else:
+                metadata = {}
+
+            return cls(
+                timesteps=np.asarray(data["timesteps"], dtype=np.int64),
+                tile_ids=np.asarray(data["tile_ids"], dtype=np.int64),
+                noise_std=np.asarray(data["noise_std"], dtype=np.float64),
+                fidelity_score=np.asarray(data["fidelity_score"], dtype=np.float64),
+                dynamic_fidelity_class=np.asarray(
+                    data["dynamic_fidelity_class"],
+                    dtype=np.uint8,
+                ),
+                available=np.asarray(data["available"], dtype=np.bool_),
+                faulted=np.asarray(data["faulted"], dtype=np.bool_),
+                base_noise_std=np.asarray(data["base_noise_std"], dtype=np.float64),
+                drift_rate=np.asarray(data["drift_rate"], dtype=np.float64),
+                initial_fidelity_class=np.asarray(
+                    data["initial_fidelity_class"],
+                    dtype=np.uint8,
+                ),
+                thermal_zone=np.asarray(data["thermal_zone"], dtype=np.int64),
+                fault_onset_timestep=np.asarray(
+                    data["fault_onset_timestep"],
+                    dtype=np.int64,
+                ),
+                fault_noise_increase_fraction=np.asarray(
+                    data["fault_noise_increase_fraction"],
+                    dtype=np.float64,
+                ),
+                metadata=metadata,
+            )
+
+    def get_snapshot(self, timestep: int) -> dict[str, Any]:
+        """Return one timestep snapshot for downstream mapping phases."""
+        normalized_timestep = _to_nonnegative_integer("timestep", timestep)
+
+        if normalized_timestep >= self.num_timesteps:
+            raise FidelitySimulationError(
+                "Requested timestep is outside trace bounds: "
+                f"{normalized_timestep} not in [0, {self.num_timesteps - 1}]."
+            )
+
+        return {
+            "timestep": normalized_timestep,
+            "tile_ids": self.tile_ids.copy(),
+            "noise_std": self.noise_std[normalized_timestep].copy(),
+            "fidelity_score": self.fidelity_score[normalized_timestep].copy(),
+            "dynamic_fidelity_class": (
+                self.dynamic_fidelity_class[normalized_timestep].copy()
+            ),
+            "available": self.available[normalized_timestep].copy(),
+            "faulted": self.faulted[normalized_timestep].copy(),
+        }
+
 class TileFidelityModel:
     """Simulate heterogeneous and time-varying tile quality."""
 

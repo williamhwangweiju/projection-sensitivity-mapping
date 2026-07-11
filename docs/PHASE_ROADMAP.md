@@ -8,38 +8,45 @@ The framework combines:
 
 1. **Projection sensitivity** from GPT-2.
 2. **Tile fidelity** from the hardware model.
-3. **Capacity-aware placement** on IBM 3D-CIM resources.
-4. **Migration-aware adaptive remapping** as hardware quality changes.
+3. **Capacity-aware static placement** on IBM 3D-CIM resources.
+4. **End-to-end AIHWKit perplexity validation** using tile-specific noise injection.
+5. **Migration-aware adaptive remapping** as hardware quality changes.
 
 The central research question is:
 
-> Can projection-level sensitivity be used to preserve language-model quality by placing important weight projections on higher-fidelity compute resources, while limiting the latency and energy overhead of remapping?
+> Can projection-level sensitivity be used to preserve language-model quality by placing important weight projections on higher-fidelity compute resources, and can this be validated through actual GPT-2 perplexity rather than only a placement proxy metric?
 
 ---
 
 ## System Architecture
 
 ```text
-Phase 1: GPT-2 sensitivity profile
+Phase 1: GPT-2 sensitivity profile with AIHWKit
               │
               ▼
-     Projection catalog and scores
+     Projection catalog and sensitivity scores
               │
-              ├──────────────┐
-              │              │
-              ▼              ▼
-Phase 2: Tile-fidelity   IBM 3D-CIM adapter
-trace over time         geometry and cost model
-              │              │
-              └──────┬───────┘
-                     ▼
-Phase 3: Static capacity-aware mappings
-                     │
-                     ▼
-Phase 4: Adaptive migration-aware mapping
-                     │
-                     ▼
-Phase 5: End-to-end evaluation
+              ├──────────────────────┐
+              │                      │
+              ▼                      ▼
+Phase 2: Tile-fidelity trace     IBM 3D-CIM adapter
+over time                       geometry and cost model
+              │                      │
+              └──────────┬───────────┘
+                         ▼
+Phase 3: Static capacity-aware IBM 3D-CIM mappings
+                         │
+                         ▼
+Phase 4: AIHWKit bridge and tile-level noise injection
+                         │
+                         ▼
+      Validate: PPL_c < PPL_s < PPL_b
+                         │
+                         ▼
+Phase 5: Adaptive migration-aware mapping
+                         │
+                         ▼
+Phase 6: Comprehensive evaluation and publication figures
 ```
 
 ### Scope
@@ -217,7 +224,7 @@ faulted[timestep, tile]
 
 # Phase 3: IBM 3D-CIM Integration and Static Mapping Baselines
 
-**Status:** Next phase
+**Status:** Completed / static baseline validation in progress
 
 ## Goal
 
@@ -461,10 +468,11 @@ Metrics:
 - Capacity utilization.
 - Number of projections or shards on faulted tiles.
 - Number of projections or shards on unavailable tiles.
-- Estimated perplexity degradation.
-- Measured perplexity and KL divergence at selected checkpoints.
 - IBM 3D-CIM baseline latency and energy.
+- IBM 3D-CIM memory and FLOP metrics.
 - Policy generation time.
+
+Phase 3 uses a fast sensitivity-weighted quality-risk proxy. Direct GPT-2 perplexity validation is handled in Phase 4.
 
 Static policies should report:
 
@@ -472,6 +480,39 @@ Static policies should report:
 remapping_events = 0
 weight_data_moved_after_initialization = 0
 ```
+
+
+## Observed Phase 3 Results
+
+The static baseline experiments show that sensitivity-aware mapping only becomes useful when reliable hardware resources are scarce.
+
+In the initial abundant-capacity setting, hardware-only and static sensitivity-aware mapping produced equivalent results because the mapped model used only a small fraction of total available tier capacity. In that regime, nearly all modules could still be assigned to good tiles, so changing module order had little effect.
+
+After reducing the number of tiers per tile, capacity utilization increased to approximately:
+
+```text
+capacity_utilization ≈ 0.8574
+```
+
+This created contention for reliable tiles. Under this constrained setting, static sensitivity-aware mapping achieved the lowest sensitivity-weighted tile error:
+
+| Policy | Mean sensitivity-weighted tile error | Final sensitivity-weighted tile error | Sensitivity-weighted assigned noise |
+|---|---:|---:|---:|
+| Random | 37.68 | 40.25 | 0.02500 |
+| Sequential | 35.78 | 39.96 | 0.02508 |
+| Hardware-only | 28.17 | 31.79 | 0.02143 |
+| Static sensitivity-aware | **16.15** | **18.39** | **0.01651** |
+
+Compared with the hardware-only baseline, the static sensitivity-aware policy reduced:
+
+```text
+mean sensitivity-weighted tile error:  approximately 42.7%
+final sensitivity-weighted tile error: approximately 42.2%
+peak sensitivity-weighted tile error:  approximately 42.2%
+sensitivity-weighted assigned noise:   approximately 23.0%
+```
+
+The important interpretation is that hardware-only and static sensitivity-aware mapping can use similar average tile quality, but the sensitivity-aware policy assigns the lower-noise resources to the projections that matter most for GPT-2 quality.
 
 ## Expected Outputs
 
@@ -491,29 +532,287 @@ data/results/phase3_baselines/<experiment>/seed_<seed>/
 
 ## Completion Criteria
 
-- [ ] Phase 1 sensitivity profiles load automatically.
-- [ ] Phase 2 fidelity traces load automatically.
-- [ ] IBM 3D-CIM geometry and usable capacity are extracted.
-- [ ] GPT-2 projection dimensions are canonicalized correctly.
-- [ ] Projections are divided into valid crossbar shards.
-- [ ] All placements satisfy hardware capacity.
-- [ ] Random mapping is reproducible.
-- [ ] Sequential mapping follows execution order.
-- [ ] Hardware-only mapping ignores sensitivity.
-- [ ] Static sensitivity-aware mapping uses Phase 1 scores.
-- [ ] Every policy can be evaluated across every Phase 2 timestep.
-- [ ] Static mappings become suboptimal after selected drift or fault events.
-- [ ] Results establish meaningful lower and upper baseline bounds.
+- [x] Phase 1 sensitivity profiles load automatically.
+- [x] Phase 2 fidelity traces load automatically.
+- [x] IBM 3D-CIM geometry and usable capacity are extracted.
+- [x] GPT-2 projection dimensions are mapped to IBM 3D-CIM module structure.
+- [x] IBM module fragments are converted into projection-shard placement records.
+- [x] Random mapping is reproducible.
+- [x] Sequential mapping follows execution order.
+- [x] Hardware-only mapping ignores sensitivity.
+- [x] Static sensitivity-aware mapping uses Phase 1 scores.
+- [x] Every policy can be evaluated across every Phase 2 timestep.
+- [x] Capacity-constrained experiments show separation between hardware-only and sensitivity-aware mapping.
+- [x] Results establish meaningful static baseline bounds.
+- [ ] Add direct GPT-2 perplexity validation through Phase 4.
 
 ---
 
-# Phase 4: Adaptive Mapping Algorithm
+# Phase 4: AIHWKit Bridge and Tile-Level Perplexity Validation
 
-**Status:** Planned after Phase 3
+**Status:** Next phase
+
+## Goal
+
+Bridge the Phase 3 mapping results back to GPT-2 quality evaluation by injecting tile-specific noise into the actual GPT-2 projection weights and measuring perplexity.
+
+Phase 3 demonstrates that static sensitivity-aware mapping reduces a sensitivity-weighted tile-error proxy. Phase 4 must validate that this proxy corresponds to actual language-model quality preservation.
+
+The target relationship is:
+
+```text
+PPL_c < PPL_s < PPL_b
+```
+
+where:
+
+```text
+PPL_c = clean GPT-2 perplexity with no analog noise
+PPL_b = noisy GPT-2 perplexity under a sensitivity-unaware baseline mapping
+PPL_s = noisy GPT-2 perplexity under static sensitivity-aware mapping
+```
+
+The strongest baseline for `PPL_b` should be the hardware-only policy, because it already uses low-noise tiles but does not use projection sensitivity.
+
+## Deliverables
+
+- Bridge from Phase 3 placement files to GPT-2 projection weights.
+- Mapping from IBM 3D-CIM module/shard placements back to Hugging Face GPT-2 projections.
+- Tile-level noise injection into projection weight submatrices.
+- Optional projection-level effective-noise approximation for faster sweeps.
+- Perplexity, negative log-likelihood, and KL-divergence evaluation for each policy.
+- Validation of the target ordering:
+
+```text
+PPL_c < PPL_static_sensitivity < PPL_hardware_only
+```
+
+- Representative-timestep evaluation:
+  - initial state,
+  - pre-fault state,
+  - post-fault state,
+  - final state.
+
+## Main Files
+
+```text
+experiments/phase4_quality/run_tile_noise_perplexity.py
+experiments/phase4_quality/analyze_perplexity_results.py
+
+src/evaluation/tile_noise_injection.py
+src/evaluation/perplexity_evaluator.py
+src/evaluation/placement_to_gpt2.py
+src/evaluation/noise_materialization.py
+```
+
+## Phase 4.1: Placement-to-GPT-2 Bridge
+
+Phase 3 produces placements in IBM 3D-CIM module space. Phase 4 must translate those placements back to GPT-2 projection weights.
+
+The bridge should map IBM module names to Phase 1 projection identifiers:
+
+```text
+q_proj_in / k_proj_in / v_proj_in / q_proj_out / k_proj_out / v_proj_out
+    -> attn.c_attn
+
+out_proj
+    -> attn.c_proj
+
+ffn1
+    -> mlp.c_fc
+
+ffn2
+    -> mlp.c_proj
+```
+
+For each policy and timestep, the bridge should produce either:
+
+```text
+projection_id -> effective_noise_std
+```
+
+or, preferably:
+
+```text
+projection_id -> list of tile-mapped weight slices
+```
+
+Each tile-mapped slice should include:
+
+```text
+projection_id
+row_start
+row_end
+col_start
+col_end
+tile_id
+tile_noise_std
+policy
+timestep
+```
+
+## Phase 4.2: Projection-Level Effective Noise Approximation
+
+As a fast validation path, collapse all tile assignments for a projection into one effective projection-level noise:
+
+```text
+sigma_p,t = sqrt(Σ_s shard_weight_s × sigma_tile(s),t^2)
+```
+
+where:
+
+```text
+s = one shard belonging to projection p
+shard_weight_s = weights_in_shard_s / weights_in_projection_p
+sigma_tile(s),t = Phase 2 noise of the tile assigned to shard s at timestep t
+```
+
+Then inject one Gaussian noise level into the whole projection:
+
+```text
+W_p_noisy = W_p + Normal(0, sigma_p,t^2)
+```
+
+This approximation is variance-preserving when shard noises are independent and zero-mean, but it loses tile-level structure.
+
+## Phase 4.3: Tile-Level Weight Noise Injection
+
+The preferred final validation should inject noise at the tile-mapped weight-slice level.
+
+For a projection weight matrix:
+
+```text
+W_p ∈ R[out_features, in_features]
+```
+
+if shard `s` is assigned to tile `i`, then only that slice receives tile `i`'s noise:
+
+```text
+W_p[row_start:row_end, col_start:col_end]
+    += Normal(0, sigma_i,t^2)
+```
+
+This directly tests the physical intuition of the project:
+
+```text
+weights placed on good tiles receive less noise
+weights placed on bad tiles receive more noise
+sensitive projections should therefore be protected by better placement
+```
+
+## Phase 4.4: GPT-2 Weight Orientation
+
+Hugging Face GPT-2 uses `Conv1D` modules for many projections. These weights are not always stored in the same orientation as standard `Linear` layers.
+
+The Phase 4 bridge must carefully handle the orientation of:
+
+```text
+model.transformer.h[i].attn.c_attn.weight
+model.transformer.h[i].attn.c_proj.weight
+model.transformer.h[i].mlp.c_fc.weight
+model.transformer.h[i].mlp.c_proj.weight
+```
+
+Internally, the evaluation code should define a canonical orientation:
+
+```text
+[out_features, in_features]
+```
+
+and convert back to the Hugging Face storage orientation before running inference.
+
+## Phase 4.5: Quality Evaluation Protocol
+
+For each selected timestep and policy:
+
+1. Load the clean GPT-2 model.
+2. Load the Phase 3 placement for the policy.
+3. Load the Phase 2 tile-fidelity trace.
+4. Read tile noise values at the selected timestep.
+5. Inject tile-level or projection-level noise into GPT-2 weights.
+6. Run GPT-2 on the same dataset subset used for Phase 1 when possible.
+7. Record:
+   - perplexity,
+   - negative log-likelihood,
+   - KL divergence from clean GPT-2,
+   - next-token agreement with clean GPT-2.
+8. Repeat over multiple random noise realizations.
+9. Compare against clean GPT-2 and baseline policies.
+
+## Primary Phase 4 Metrics
+
+- Clean perplexity:
+
+```text
+PPL_c
+```
+
+- Baseline noisy perplexity:
+
+```text
+PPL_b = PPL_hardware_only
+```
+
+- Sensitivity-aware noisy perplexity:
+
+```text
+PPL_s = PPL_static_sensitivity
+```
+
+- Perplexity preservation ratio:
+
+```text
+(PPL_b - PPL_s) / (PPL_b - PPL_c)
+```
+
+- KL divergence from clean model.
+- Negative-log-likelihood increase.
+- Next-token agreement with clean model.
+- Correlation between Phase 3 proxy error and measured perplexity.
+
+## Expected Outputs
+
+```text
+data/results/phase4_quality/<experiment>/seed_<seed>/
+├── perplexity_by_policy.csv
+├── perplexity_by_timestep.csv
+├── kl_by_policy.csv
+├── projection_noise_assignments.csv
+├── tile_noise_injection_records.csv
+├── proxy_vs_ppl_correlation.csv
+├── config.yaml
+└── metadata.json
+```
+
+## Completion Criteria
+
+- [ ] Phase 3 placement files can be loaded automatically.
+- [ ] Phase 2 tile noise can be assigned to GPT-2 projections or weight slices.
+- [ ] GPT-2 projection weight orientation is handled correctly.
+- [ ] Clean GPT-2 perplexity is reproduced consistently.
+- [ ] Hardware-only noisy perplexity can be measured.
+- [ ] Static sensitivity-aware noisy perplexity can be measured.
+- [ ] Multiple noise realizations are supported.
+- [ ] Selected timesteps show whether static sensitivity preserves perplexity better than hardware-only mapping.
+- [ ] Results validate or falsify the expected relationship:
+
+```text
+PPL_c < PPL_s < PPL_b
+```
+
+- [ ] Phase 3 proxy metrics are correlated with measured perplexity or KL divergence.
+
+---
+
+# Phase 5: Adaptive Mapping Algorithm
+
+**Status:** Planned after Phase 4
 
 ## Goal
 
 Implement a migration-aware adaptive mapper that changes projection placement when hardware fidelity changes enough to justify remapping overhead.
+
+Phase 5 extends the static Phase 3 mappings by allowing placement to change over the Phase 2 hardware trace. Phase 4 provides the end-to-end perplexity validation method needed to confirm that adaptive mapping improves actual GPT-2 quality, not only the proxy objective.
 
 ## Deliverables
 
@@ -524,11 +823,13 @@ Implement a migration-aware adaptive mapper that changes projection placement wh
 - Cooldown and hysteresis controls.
 - Capacity-aware remapping.
 - Detailed migration-event records.
+- Perplexity validation of selected adaptive checkpoints using the Phase 4 pipeline.
 
 ## Main Files
 
 ```text
-experiments/phase4_adaptive/run_adaptive_mapping.py
+experiments/phase5_adaptive/run_adaptive_mapping.py
+experiments/phase5_adaptive/analyze_adaptive_results.py
 
 src/mappers/adaptive_mapper.py
 src/mappers/migration_cost.py
@@ -537,7 +838,7 @@ src/mappers/remapping_policy.py
 
 ## Key Steps
 
-1. Load the initial placement and Phase 2 hardware trace.
+1. Load the initial static placement and Phase 2 hardware trace.
 2. At each decision timestep:
    - Read the current tile snapshot.
    - Evaluate the current placement.
@@ -548,6 +849,7 @@ src/mappers/remapping_policy.py
 4. Add cooldown and hysteresis to prevent oscillation.
 5. Record every moved shard and migration event.
 6. Compare against a naive policy that remaps whenever a better placement exists.
+7. Use the Phase 4 pipeline to measure GPT-2 perplexity at selected adaptive checkpoints.
 
 ## Remapping Decision
 
@@ -591,13 +893,14 @@ Estimate migration cost using:
 ## Expected Outputs
 
 ```text
-data/results/phase4_adaptive/<experiment>/seed_<seed>/
+data/results/phase5_adaptive/<experiment>/seed_<seed>/
 ├── initial_placement.csv
 ├── final_placement.csv
 ├── timestep_metrics.csv
 ├── remapping_events.csv
 ├── moved_shards.csv
 ├── threshold_sweep.csv
+├── adaptive_perplexity_checkpoints.csv
 ├── config.yaml
 └── metadata.json
 ```
@@ -611,18 +914,19 @@ data/results/phase4_adaptive/<experiment>/seed_<seed>/
 - [ ] Cooldown and hysteresis prevent repeated oscillation.
 - [ ] Migration bytes, latency, and energy are tracked.
 - [ ] Threshold sweeps produce a clear quality-overhead trade-off.
-- [ ] Adaptive mapping improves quality over static mapping under changing hardware.
+- [ ] Adaptive mapping improves proxy quality over static mapping under changing hardware.
+- [ ] Adaptive mapping improves measured perplexity at selected checkpoints using the Phase 4 pipeline.
 - [ ] Migration-aware adaptation uses less overhead than naive adaptation.
 
 ---
 
-# Phase 5: Comprehensive Evaluation
+# Phase 6: Comprehensive Evaluation
 
 **Status:** Planned
 
 ## Goal
 
-Evaluate all mapping strategies under consistent hardware, model, and degradation conditions and produce publication-ready results.
+Evaluate all mapping strategies under consistent hardware, model, degradation, and perplexity-validation conditions and produce publication-ready results.
 
 ## Deliverables
 
@@ -631,6 +935,7 @@ Evaluate all mapping strategies under consistent hardware, model, and degradatio
 - Evaluation across multiple degradation scenarios.
 - Quality-versus-overhead trade-off analysis.
 - IBM 3D-CIM latency and energy integration.
+- AIHWKit / materialized-noise perplexity validation at selected checkpoints.
 - Statistical summaries and confidence intervals.
 - Publication-ready figures and tables.
 - Final deployment recommendations.
@@ -638,9 +943,9 @@ Evaluate all mapping strategies under consistent hardware, model, and degradatio
 ## Main Files
 
 ```text
-experiments/phase5_evaluation/run_full_evaluation.py
-experiments/phase5_evaluation/analyze_results.py
-experiments/phase5_evaluation/generate_figures.py
+experiments/phase6_evaluation/run_full_evaluation.py
+experiments/phase6_evaluation/analyze_results.py
+experiments/phase6_evaluation/generate_figures.py
 ```
 
 ## Evaluation Scenarios
@@ -677,6 +982,7 @@ Each scenario should run across multiple seeds.
 - KL divergence from the clean model.
 - Next-token agreement with the clean model.
 - Sensitivity-weighted tile error.
+- Correlation between proxy quality metrics and measured perplexity.
 
 ### Hardware and Performance
 
@@ -726,17 +1032,18 @@ record all metrics using the same:
 - Number of timesteps.
 - Evaluation checkpoints.
 
-Use lightweight proxy metrics at every timestep and run full GPT-2 perplexity and KL evaluation at selected representative timesteps.
+Use lightweight proxy metrics at every timestep and run full GPT-2 perplexity and KL evaluation at selected representative timesteps using the Phase 4 tile-level noise injection bridge.
 
 ## Expected Outputs
 
 ```text
-data/results/phase5_evaluation/
+data/results/phase6_evaluation/
 ├── all_runs.csv
 ├── aggregate_metrics.csv
 ├── statistical_tests.csv
 ├── figures/
 │   ├── quality_over_time.pdf
+│   ├── proxy_vs_perplexity.pdf
 │   ├── quality_vs_migration_cost.pdf
 │   ├── remapping_events.pdf
 │   ├── energy_latency_tradeoff.pdf
@@ -751,6 +1058,7 @@ data/results/phase5_evaluation/
 
 - [ ] All six strategies are evaluated under identical conditions.
 - [ ] Results include multiple seeds and degradation scenarios.
+- [ ] Sensitivity-aware static mapping improves measured perplexity over hardware-only static mapping under constrained hardware.
 - [ ] Adaptive mapping improves cumulative quality over static baselines.
 - [ ] Migration-aware adaptation reduces overhead relative to naive adaptation.
 - [ ] Sensitivity-aware policies outperform comparable sensitivity-unaware policies.
@@ -772,7 +1080,16 @@ SensitivityProfile
 projection_id -> sensitivity_score and quality metrics
 ```
 
-## Phase 2 to Phases 3 and 4
+## Phase 1 to Phase 4
+
+```text
+CleanQualityReference
+PPL_c
+clean negative log-likelihood
+clean logits or cached clean distributions for KL evaluation
+```
+
+## Phase 2 to Phases 3, 4, and 5
 
 ```text
 TileFidelityTrace
@@ -785,7 +1102,7 @@ Recommended helper:
 snapshot = trace.get_snapshot(timestep)
 ```
 
-## IBM 3D-CIM to Phases 3–5
+## IBM 3D-CIM to Phases 3–6
 
 ```text
 HardwareConfig
@@ -798,12 +1115,34 @@ MigrationCostEstimate
 
 ```text
 Placement
+ProjectionShard records
 policy metadata
+shard-to-tile assignments
 capacity utilization
-initial objective value
 ```
 
-## Phases 3 and 4 to Phase 5
+For tile-level noise injection, Phase 3 should preserve or reconstruct:
+
+```text
+projection_id
+row_start
+row_end
+col_start
+col_end
+tile_id
+```
+
+## Phase 4 to Phase 5
+
+```text
+PerplexityValidationProtocol
+selected evaluation timesteps
+noise materialization method
+clean baseline quality
+policy-level quality results
+```
+
+## Phases 3, 4, and 5 to Phase 6
 
 Use the same timestep-level and policy-level metric schemas so all strategies can be compared without custom analysis code.
 
@@ -818,11 +1157,14 @@ tests/phase1/
 tests/phase2/
 tests/phase3/
 tests/phase4/
+tests/phase5/
+tests/phase6/
 ```
 
 Important tests include:
 
 - Projection dimension canonicalization.
+- GPT-2 `Conv1D` weight orientation.
 - Crossbar sharding.
 - Capacity accounting.
 - Placement validity.
@@ -830,6 +1172,9 @@ Important tests include:
 - Sensitivity ordering.
 - Hardware-fidelity ordering.
 - Trace snapshot extraction.
+- Tile-noise-to-weight-slice assignment.
+- Noise materialization reproducibility.
+- Clean perplexity reproduction.
 - Migration-byte calculation.
 - Remapping threshold behavior.
 - Cooldown and hysteresis.
@@ -841,8 +1186,10 @@ Important tests include:
 - Load a Phase 2 trace into Phase 3.
 - Extract IBM 3D-CIM geometry.
 - Generate every static placement.
+- Convert a Phase 3 placement into GPT-2 tile-level noise assignments.
+- Run a GPT-2 perplexity checkpoint under hardware-only and static sensitivity-aware placements.
 - Run an adaptive policy through a complete trace.
-- Evaluate a small GPT-2 dataset checkpoint under a selected placement.
+- Evaluate adaptive checkpoints with the Phase 4 perplexity bridge.
 
 ---
 
@@ -850,23 +1197,36 @@ Important tests include:
 
 ## Phase 1
 
-- [ ] Sensitivity profiles show clear and reproducible differentiation between projections.
+- [x] Sensitivity profiles show clear differentiation between projections.
+- [ ] Sensitivity profiles are validated with enough seeds and tokens for final reporting.
 
 ## Phase 2
 
-- [ ] The fidelity model produces realistic and validated heterogeneous degradation patterns.
+- [x] The fidelity model produces heterogeneous and time-varying degradation patterns.
+- [ ] Trace helpers are finalized for all downstream phases.
 
 ## Phase 3
 
-- [ ] Static baselines establish meaningful capacity-aware performance bounds.
+- [x] Static baselines establish meaningful capacity-aware performance bounds.
+- [x] Under constrained capacity, sensitivity-aware static mapping achieves the lowest sensitivity-weighted tile error.
 
 ## Phase 4
 
-- [ ] Migration-aware adaptation preserves quality while reducing remapping overhead relative to naive adaptation.
+- [ ] Tile-level noise injection validates whether lower proxy error translates into lower GPT-2 perplexity.
+- [ ] Results demonstrate or falsify:
+
+```text
+PPL_c < PPL_s < PPL_b
+```
 
 ## Phase 5
 
+- [ ] Migration-aware adaptation preserves quality while reducing remapping overhead relative to naive adaptation.
+
+## Phase 6
+
 - [ ] Results provide clear evidence that projection sensitivity improves mapping decisions on heterogeneous and changing 3D-CIM hardware.
+- [ ] Results include both proxy metrics and measured GPT-2 quality metrics.
 
 ## Research Success
 
@@ -874,25 +1234,27 @@ The project is successful if it demonstrates that:
 
 1. GPT-2 projections have meaningfully different sensitivity to analog hardware noise.
 2. Hardware fidelity changes can make an initially good static placement become suboptimal.
-3. Sensitivity-aware placement preserves model quality better than sensitivity-unaware placement.
-4. Runtime adaptation can recover quality after degradation.
-5. Migration-aware decision logic achieves a better quality-overhead trade-off than remapping whenever the hardware ranking changes.
+3. Sensitivity-aware placement reduces sensitivity-weighted tile error under constrained hardware.
+4. Sensitivity-aware placement also preserves measured GPT-2 perplexity better than sensitivity-unaware placement.
+5. Runtime adaptation can recover quality after degradation.
+6. Migration-aware decision logic achieves a better quality-overhead trade-off than remapping whenever the hardware ranking changes.
 
 ---
 
 # Updated Timeline
 
-Assuming part-time work and that Phases 1 and 2 are substantially complete:
+Assuming part-time work and that Phases 1, 2, and 3 are substantially complete:
 
 | Phase | Estimated effort | Main dependency |
 |---|---:|---|
-| Phase 1 final validation | 3–5 days | AIHWKit methodology validation |
+| Phase 1 final validation | 3–5 days | AIHWKit methodology validation and more seeds/tokens |
 | Phase 2 interface cleanup | 1–2 days | Trace loader and snapshot API |
-| Phase 3 IBM integration and baselines | 1–2 weeks | IBM tier and capacity semantics |
-| Phase 4 adaptive mapper | 2 weeks | Stable Phase 3 placement model |
-| Phase 5 evaluation and analysis | 2–3 weeks | Reproducible end-to-end pipeline |
+| Phase 3 static baseline cleanup | 2–4 days | Placement validation and constrained-capacity result reproduction |
+| Phase 4 AIHWKit/perplexity bridge | 1–2 weeks | Placement-to-GPT-2 bridge and tile-level noise injection |
+| Phase 5 adaptive mapper | 2 weeks | Stable Phase 3 placement model and Phase 4 quality validation |
+| Phase 6 evaluation and analysis | 2–3 weeks | Reproducible static, quality, and adaptive pipelines |
 | Writing and figure refinement | 1–2 weeks | Final experimental results |
 
 The most important immediate milestone is:
 
-> Verify IBM 3D-CIM resource semantics, create the projection-sharding and placement abstractions, and implement the four static Phase 3 baselines.
+> Build the Phase 4 bridge from Phase 3 placements to GPT-2 weight-noise injection, then verify that sensitivity-aware mapping preserves perplexity better than the hardware-only baseline, ideally showing `PPL_c < PPL_s < PPL_b`.
