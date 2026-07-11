@@ -1,0 +1,1075 @@
+{
+  "metadata": {
+    "paper": "Heterogeneous Mapping for Analog In-Memory Computing Accelerators: A Unified Workflow",
+    "created_at_utc": "2026-07-10T21:32:02.060885+00:00",
+    "software_versions": {
+      "python": "3.12.13",
+      "torch": "2.12.1",
+      "transformers": "5.12.1",
+      "datasets": "5.0.0",
+      "aihwkit": "1.1.0"
+    },
+    "model": {
+      "name": "gpt2",
+      "n_layer": 12,
+      "n_embd": 768,
+      "vocab_size": 50257,
+      "dtype": "torch.float32"
+    },
+    "dataset": {
+      "name": "Salesforce/wikitext",
+      "config": "wikitext-103-raw-v1",
+      "split": "test",
+      "sequence_length": 1024,
+      "stride": 1024,
+      "batch_size": 1,
+      "max_tokens": null,
+      "document_separator": "\n\n",
+      "drop_incomplete_final_sequence": true,
+      "collected_tokens": 286178,
+      "num_windows": 279,
+      "num_batches": 279,
+      "predicted_tokens_per_pass": 285417
+    },
+    "analog_configuration": {
+      "clip_type": "LAYER_GAUSSIAN",
+      "clip_sigma": 2.5,
+      "tile_size": 512,
+      "adc_dac_bits": 8,
+      "input_resolution": 0.003937007874015748,
+      "output_resolution": 0.003937007874015748,
+      "programming_noise_model": "PCMLikeNoiseModel",
+      "programming_noise_scale": 1.0,
+      "num_seeds": 1,
+      "seed_stride": 1,
+      "seed": 42,
+      "profile_blocks": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "include_lm_head": false,
+      "read_noise_enabled": false,
+      "drift_enabled": false
+    }
+  },
+  "requested_config": {
+    "model": {
+      "name": "gpt2",
+      "device": "cpu"
+    },
+    "dataset": {
+      "name": "Salesforce/wikitext",
+      "config": "wikitext-103-raw-v1",
+      "split": "test",
+      "max_tokens": null,
+      "sequence_length": 1024,
+      "stride": 1024,
+      "batch_size": 1,
+      "document_separator": "\n\n",
+      "drop_incomplete_final_sequence": true
+    },
+    "profiling": {
+      "include_lm_head": false,
+      "clip_sigma": 2.5,
+      "tile_size": 512,
+      "adc_dac_bits": 8,
+      "programming_noise_scale": 1.0,
+      "num_seeds": 1,
+      "seed_stride": 1,
+      "profile_blocks": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ]
+    },
+    "experiment": {
+      "seed": 42,
+      "save_dir": "./data/results/phase1_sensitivity",
+      "results_filename_prefix": "programming_noise_sensitivity"
+    }
+  },
+  "results": {
+    "digital_perplexity": 29.00867398320851,
+    "projections": [
+      {
+        "block_id": "block_0",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_0/attn.c_attn",
+        "in_features": 768,
+        "out_features": 2304,
+        "analog_tile_count": 10,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.155706815677352,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.1470328324688417,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.1470328324688417
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 33
+      },
+      {
+        "block_id": "block_0",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_0/attn.c_proj",
+        "in_features": 768,
+        "out_features": 768,
+        "analog_tile_count": 4,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 42.29382989371181,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 13.285155910503299,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          13.285155910503299
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 1
+      },
+      {
+        "block_id": "block_0",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_0/mlp.c_fc",
+        "in_features": 768,
+        "out_features": 3072,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.19735760633639,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.18868362312787923,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.18868362312787923
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 28
+      },
+      {
+        "block_id": "block_0",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_0/mlp.c_proj",
+        "in_features": 3072,
+        "out_features": 768,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 33.39864110088637,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 4.3899671176778625,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          4.3899671176778625
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 2
+      },
+      {
+        "block_id": "block_1",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_1/attn.c_attn",
+        "in_features": 768,
+        "out_features": 2304,
+        "analog_tile_count": 10,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.05147564916969,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.042801665961178514,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.042801665961178514
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 44
+      },
+      {
+        "block_id": "block_1",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_1/attn.c_proj",
+        "in_features": 768,
+        "out_features": 768,
+        "analog_tile_count": 4,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.39470639614394,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.3860324129354282,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.3860324129354282
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 20
+      },
+      {
+        "block_id": "block_1",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_1/mlp.c_fc",
+        "in_features": 768,
+        "out_features": 3072,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 30.36937178553367,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 1.3606978023251592,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          1.3606978023251592
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 7
+      },
+      {
+        "block_id": "block_1",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_1/mlp.c_proj",
+        "in_features": 3072,
+        "out_features": 768,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 30.19599179298984,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 1.1873178097813302,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          1.1873178097813302
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 9
+      },
+      {
+        "block_id": "block_2",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_2/attn.c_attn",
+        "in_features": 768,
+        "out_features": 2304,
+        "analog_tile_count": 10,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 30.75827243132366,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 1.749598448115151,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          1.749598448115151
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 5
+      },
+      {
+        "block_id": "block_2",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_2/attn.c_proj",
+        "in_features": 768,
+        "out_features": 768,
+        "analog_tile_count": 4,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.138587795206515,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.129913811998005,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.129913811998005
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 34
+      },
+      {
+        "block_id": "block_2",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_2/mlp.c_fc",
+        "in_features": 768,
+        "out_features": 3072,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 31.506914565412725,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 2.4982405822042146,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          2.4982405822042146
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 4
+      },
+      {
+        "block_id": "block_2",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_2/mlp.c_proj",
+        "in_features": 3072,
+        "out_features": 768,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 30.510645135625396,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 1.5019711524168855,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          1.5019711524168855
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 6
+      },
+      {
+        "block_id": "block_3",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_3/attn.c_attn",
+        "in_features": 768,
+        "out_features": 2304,
+        "analog_tile_count": 10,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.677166701613956,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.6684927184054459,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.6684927184054459
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 16
+      },
+      {
+        "block_id": "block_3",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_3/attn.c_proj",
+        "in_features": 768,
+        "out_features": 768,
+        "analog_tile_count": 4,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.06039150728746,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.05171752407894914,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.05171752407894914
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 43
+      },
+      {
+        "block_id": "block_3",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_3/mlp.c_fc",
+        "in_features": 768,
+        "out_features": 3072,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.16966537544045,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.1609913922319386,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.1609913922319386
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 31
+      },
+      {
+        "block_id": "block_3",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_3/mlp.c_proj",
+        "in_features": 3072,
+        "out_features": 768,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.979914363321754,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.9712403801132439,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.9712403801132439
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 12
+      },
+      {
+        "block_id": "block_4",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_4/attn.c_attn",
+        "in_features": 768,
+        "out_features": 2304,
+        "analog_tile_count": 10,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.69395684888086,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.6852828656723489,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.6852828656723489
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 15
+      },
+      {
+        "block_id": "block_4",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_4/attn.c_proj",
+        "in_features": 768,
+        "out_features": 768,
+        "analog_tile_count": 4,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.03538550942262,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.026711526214111103,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.026711526214111103
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 45
+      },
+      {
+        "block_id": "block_4",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_4/mlp.c_fc",
+        "in_features": 768,
+        "out_features": 3072,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.54438954565297,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.5357155624444587,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.5357155624444587
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 19
+      },
+      {
+        "block_id": "block_4",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_4/mlp.c_proj",
+        "in_features": 3072,
+        "out_features": 768,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.331196339239625,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.322522356031115,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.322522356031115
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 22
+      },
+      {
+        "block_id": "block_5",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_5/attn.c_attn",
+        "in_features": 768,
+        "out_features": 2304,
+        "analog_tile_count": 10,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 30.217715461053945,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 1.2090414778454353,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          1.2090414778454353
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 8
+      },
+      {
+        "block_id": "block_5",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_5/attn.c_proj",
+        "in_features": 768,
+        "out_features": 768,
+        "analog_tile_count": 4,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.06191378900821,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.05323980579969856,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.05323980579969856
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 42
+      },
+      {
+        "block_id": "block_5",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_5/mlp.c_fc",
+        "in_features": 768,
+        "out_features": 3072,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.27788689703647,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.2692129138279604,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.2692129138279604
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 24
+      },
+      {
+        "block_id": "block_5",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_5/mlp.c_proj",
+        "in_features": 3072,
+        "out_features": 768,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.20213996295413,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.1934659797456213,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.1934659797456213
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 27
+      },
+      {
+        "block_id": "block_6",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_6/attn.c_attn",
+        "in_features": 768,
+        "out_features": 2304,
+        "analog_tile_count": 10,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 30.130639276823626,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 1.1219652936151157,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          1.1219652936151157
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 10
+      },
+      {
+        "block_id": "block_6",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_6/attn.c_proj",
+        "in_features": 768,
+        "out_features": 768,
+        "analog_tile_count": 4,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.026042950355357,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.017368967146847325,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.017368967146847325
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 46
+      },
+      {
+        "block_id": "block_6",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_6/mlp.c_fc",
+        "in_features": 768,
+        "out_features": 3072,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.204245857552074,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.19557187434356393,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.19557187434356393
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 26
+      },
+      {
+        "block_id": "block_6",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_6/mlp.c_proj",
+        "in_features": 3072,
+        "out_features": 768,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.11986540867096,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.11119142546245087,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.11119142546245087
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 35
+      },
+      {
+        "block_id": "block_7",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_7/attn.c_attn",
+        "in_features": 768,
+        "out_features": 2304,
+        "analog_tile_count": 10,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.634142028631885,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.625468045423375,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.625468045423375
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 17
+      },
+      {
+        "block_id": "block_7",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_7/attn.c_proj",
+        "in_features": 768,
+        "out_features": 768,
+        "analog_tile_count": 4,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.09562986472672,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.08695588151821099,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.08695588151821099
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 37
+      },
+      {
+        "block_id": "block_7",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_7/mlp.c_fc",
+        "in_features": 768,
+        "out_features": 3072,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.016065994990843,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.00739201178233273,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.00739201178233273
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 47
+      },
+      {
+        "block_id": "block_7",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_7/mlp.c_proj",
+        "in_features": 3072,
+        "out_features": 768,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.1142799936164,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.10560601040788953,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.10560601040788953
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 36
+      },
+      {
+        "block_id": "block_8",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_8/attn.c_attn",
+        "in_features": 768,
+        "out_features": 2304,
+        "analog_tile_count": 10,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.78248671755086,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.77381273434235,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.77381273434235
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 14
+      },
+      {
+        "block_id": "block_8",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_8/attn.c_proj",
+        "in_features": 768,
+        "out_features": 768,
+        "analog_tile_count": 4,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.079374769717138,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.07070078650862754,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.07070078650862754
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 40
+      },
+      {
+        "block_id": "block_8",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_8/mlp.c_fc",
+        "in_features": 768,
+        "out_features": 3072,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.296324062624816,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.2876500794163057,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.2876500794163057
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 23
+      },
+      {
+        "block_id": "block_8",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_8/mlp.c_proj",
+        "in_features": 3072,
+        "out_features": 768,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.15959891024393,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.15092492703541893,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.15092492703541893
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 32
+      },
+      {
+        "block_id": "block_9",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_9/attn.c_attn",
+        "in_features": 768,
+        "out_features": 2304,
+        "analog_tile_count": 10,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.84180454931064,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.8331305661021311,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.8331305661021311
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 13
+      },
+      {
+        "block_id": "block_9",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_9/attn.c_proj",
+        "in_features": 768,
+        "out_features": 768,
+        "analog_tile_count": 4,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.088402372935533,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.07972838972702334,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.07972838972702334
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 39
+      },
+      {
+        "block_id": "block_9",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_9/mlp.c_fc",
+        "in_features": 768,
+        "out_features": 3072,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.08902279548457,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.0803488122760605,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.0803488122760605
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 38
+      },
+      {
+        "block_id": "block_9",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_9/mlp.c_proj",
+        "in_features": 3072,
+        "out_features": 768,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.07522402484241,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.06655004163389933,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.06655004163389933
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 41
+      },
+      {
+        "block_id": "block_10",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_10/attn.c_attn",
+        "in_features": 768,
+        "out_features": 2304,
+        "analog_tile_count": 10,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.341517667606148,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.3328436843976377,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.3328436843976377
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 21
+      },
+      {
+        "block_id": "block_10",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_10/attn.c_proj",
+        "in_features": 768,
+        "out_features": 768,
+        "analog_tile_count": 4,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.170884523125217,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.16221053991670686,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.16221053991670686
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 30
+      },
+      {
+        "block_id": "block_10",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_10/mlp.c_fc",
+        "in_features": 768,
+        "out_features": 3072,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.178924750307036,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.17025076709852627,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.17025076709852627
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 29
+      },
+      {
+        "block_id": "block_10",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_10/mlp.c_proj",
+        "in_features": 3072,
+        "out_features": 768,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.26819448831735,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.2595205051088385,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.2595205051088385
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 25
+      },
+      {
+        "block_id": "block_11",
+        "proj_name": "attn.c_attn",
+        "projection_label": "block_11/attn.c_attn",
+        "in_features": 768,
+        "out_features": 2304,
+        "analog_tile_count": 10,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 29.573995698259342,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 0.5653217150508318,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          0.5653217150508318
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 18
+      },
+      {
+        "block_id": "block_11",
+        "proj_name": "attn.c_proj",
+        "projection_label": "block_11/attn.c_proj",
+        "in_features": 768,
+        "out_features": 768,
+        "analog_tile_count": 4,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 31.99944002769247,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 2.9907660444839586,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          2.9907660444839586
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 3
+      },
+      {
+        "block_id": "block_11",
+        "proj_name": "mlp.c_fc",
+        "projection_label": "block_11/mlp.c_fc",
+        "in_features": 768,
+        "out_features": 3072,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 28.976053345107854,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": -0.03262063810065641,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          -0.03262063810065641
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 48
+      },
+      {
+        "block_id": "block_11",
+        "proj_name": "mlp.c_proj",
+        "projection_label": "block_11/mlp.c_proj",
+        "in_features": 3072,
+        "out_features": 768,
+        "analog_tile_count": 12,
+        "ppl_clean": 29.00867398320851,
+        "ppl_noisy_mean": 30.047314281839427,
+        "ppl_noisy_std": 0.0,
+        "sensitivity_mean": 1.0386402986309164,
+        "sensitivity_std": 0.0,
+        "sensitivity_per_seed": [
+          1.0386402986309164
+        ],
+        "realization_seeds": [
+          42
+        ],
+        "sensitivity_rank": 11
+      }
+    ]
+  }
+}

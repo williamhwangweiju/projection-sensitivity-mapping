@@ -1,46 +1,9 @@
 #!/usr/bin/env python3
-"""Analyze and visualize Phase 1 AIHWKIT sensitivity results.
+"""Analyze Phase 1 AIHWKit projection-sensitivity results.
 
-This analyzer matches the JSON schema produced by the Phase 1 runner:
-
-    {
-        "metadata": {...},
-        "requested_config": {...},
-        "results": {
-            "digital_perplexity": float,
-            "projections": [
-                {
-                    "block_id": str,
-                    "proj_name": str,
-                    "projection_label": str,
-                    "sensitivity_mean": float,
-                    "sensitivity_std": float,
-                    "sensitivity_per_seed": [...],
-                    "realization_seeds": [...]
-                },
-                ...
-            ]
-        }
-    }
-
-The runner may profile only a subset of blocks selected in YAML, so this
-analyzer does not assume a fixed number of projection records.
-
-Generated plots:
-
-1. Projection-sensitivity heatmap
-2. Sensitivity distribution by projection type
-3. Per-block sensitivity grouped by projection type
-
-Examples:
-
-    python experiments/phase1_sensitivity/analyze_phase1.py
-
-    python experiments/phase1_sensitivity/analyze_phase1.py \
-        --results-file data/results/lammie_2026_aihwkit_stage1_2_20260624_120000.json
-
-    python experiments/phase1_sensitivity/analyze_phase1.py \
-        --results-dir data/results
+The analyzer consumes the JSON produced by ``run_aihwkit_profiling.py`` and
+creates summary statistics plus three plots used to inspect the sensitivity
+profile before Phase 2/3 mapping.
 """
 
 from __future__ import annotations
@@ -55,44 +18,33 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import numpy as np
 
+RESULT_FILE_PATTERN = "programming_noise_sensitivity_*.json"
 
-RESULT_FILE_PATTERN = "lammie_2026_aihwkit_stage1_2_*.json"
-
-# Canonical GPT-2 projection names emitted by the current profiler.
 PROJECTION_ORDER = [
-    "c_attn",
+    "attn.c_attn",
     "attn.c_proj",
     "mlp.c_fc",
     "mlp.c_proj",
     "lm_head",
 ]
 
-# Aliases supported for older result files.
-PROJECTION_ALIASES = {
-    "q_proj": "c_attn",
-    "c_attn": "c_attn",
-    "attn.c_attn": "c_attn",
-    "out_proj": "attn.c_proj",
-    "attn.c_proj": "attn.c_proj",
-    "fc1": "mlp.c_fc",
-    "mlp.c_fc": "mlp.c_fc",
-    "fc2": "mlp.c_proj",
-    "mlp.c_proj": "mlp.c_proj",
-    "lm_head": "lm_head",
+PROJECTION_COLORS = {
+    "attn.c_attn": "red",
+    "attn.c_proj": "orange",
+    "mlp.c_fc": "blue",
+    "mlp.c_proj": "lightblue",
+    "lm_head": "darkred",
 }
+
+SensitivityTable = Dict[str, Dict[str, float]]
 
 
 def find_repo_root(script_path: Path) -> Path:
-    """Find the repository root from the analyzer location."""
+    """Find the repository root from this script location."""
     resolved = script_path.resolve()
-
     for candidate in (resolved.parent, *resolved.parents):
-        if (
-            candidate / "src" / "profilers" / "aihwkit_profiler.py"
-        ).is_file():
+        if (candidate / "src" / "profilers" / "aihwkit_profiler.py").is_file():
             return candidate
-
-    # Keep the analyzer usable when copied outside the repository.
     return resolved.parent
 
 
@@ -100,86 +52,37 @@ REPO_ROOT = find_repo_root(Path(__file__))
 
 
 def block_sort_key(block_id: str) -> Tuple[int, int, str]:
-    """Sort transformer blocks numerically and place the LM head last."""
-    if block_id in {"head", "lm_head"}:
+    """Sort GPT-2 transformer blocks numerically and place the LM head last."""
+    if block_id == "head":
         return (1, 0, block_id)
-
     if block_id.startswith("block_"):
         try:
-            return (
-                0,
-                int(block_id.split("_", maxsplit=1)[1]),
-                block_id,
-            )
-        except (ValueError, IndexError):
+            return (0, int(block_id.split("_", maxsplit=1)[1]), block_id)
+        except (IndexError, ValueError):
             pass
-
     return (2, 0, block_id)
 
 
-def normalize_block_id(block_id: str) -> str:
-    """Use ``lm_head`` as the display row for the output head."""
-    return "lm_head" if block_id == "head" else block_id
-
-
-def normalize_projection_name(proj_name: str) -> str:
-    """Normalize supported projection aliases to canonical names."""
-    try:
-        return PROJECTION_ALIASES[proj_name]
-    except KeyError as exc:
-        raise ValueError(
-            f"Unknown projection name in result file: {proj_name!r}"
-        ) from exc
-
-
 def find_latest_results_file(
-    explicit_results_dir: Optional[Path] = None,
+    results_dir: Optional[Path] = None,
     pattern: str = RESULT_FILE_PATTERN,
 ) -> Path:
-    """Find the newest runner output JSON.
+    """Return the newest Phase 1 JSON result matching ``pattern``."""
+    root = results_dir.expanduser().resolve() if results_dir else REPO_ROOT / "data" / "results"
+    if not root.is_dir():
+        raise FileNotFoundError(f"Results directory does not exist: {root}")
 
-    The current runner defaults to ``data/results``. Recursive searching also
-    supports experiment-specific subdirectories.
-    """
-    if explicit_results_dir is not None:
-        search_dirs = [explicit_results_dir]
-    else:
-        search_dirs = [
-            REPO_ROOT / "data" / "results",
-            REPO_ROOT / "data" / "results" / "phase1_sensitivity",
-            REPO_ROOT / "results" / "phase1_sensitivity",
-            REPO_ROOT / "results" / "lammie_2026",
-            REPO_ROOT / "results",
-        ]
-
-    candidates: List[Path] = []
-    seen: set[Path] = set()
-
-    for directory in search_dirs:
-        resolved_directory = directory.expanduser().resolve()
-        if not resolved_directory.is_dir():
-            continue
-
-        for candidate in resolved_directory.rglob(pattern):
-            resolved_candidate = candidate.resolve()
-            if resolved_candidate not in seen:
-                candidates.append(resolved_candidate)
-                seen.add(resolved_candidate)
-
+    candidates = [path.resolve() for path in root.rglob(pattern) if path.is_file()]
     if not candidates:
-        searched = "\n".join(f"  - {path}" for path in search_dirs)
         raise FileNotFoundError(
-            "No AIHWKIT profiling result file was found.\n"
-            f"Expected files matching {pattern!r} under:\n"
-            f"{searched}\n"
+            f"No result file matching {pattern!r} was found under {root}. "
             "Pass --results-file to select a file explicitly."
         )
-
     return max(candidates, key=lambda path: path.stat().st_mtime)
 
 
 def load_results_payload(results_file: Path) -> Dict[str, Any]:
-    """Load and validate the runner's JSON output."""
+    """Load and validate the runner output JSON."""
     if not results_file.is_file():
         raise FileNotFoundError(f"Results file not found: {results_file}")
 
@@ -187,451 +90,282 @@ def load_results_payload(results_file: Path) -> Dict[str, Any]:
         payload = json.load(stream)
 
     if not isinstance(payload, dict):
-        raise TypeError("The result JSON root must be an object.")
+        raise TypeError("Result JSON root must be an object.")
 
-    results = payload.get("results", payload)
+    results = payload.get("results")
     if not isinstance(results, dict):
-        raise TypeError("The JSON 'results' value must be an object.")
+        raise ValueError("Result JSON must contain a 'results' object.")
 
     projections = results.get("projections")
     if not isinstance(projections, list) or not projections:
-        raise ValueError(
-            "The JSON does not contain results.projections as a "
-            "non-empty list."
-        )
+        raise ValueError("results.projections must be a non-empty list.")
 
-    digital_perplexity = results.get("digital_perplexity")
-    if digital_perplexity is not None:
-        numeric_perplexity = float(digital_perplexity)
-        if not np.isfinite(numeric_perplexity):
-            raise ValueError(
-                "results.digital_perplexity must be finite when present."
-            )
+    digital_perplexity = float(results["digital_perplexity"])
+    if not np.isfinite(digital_perplexity):
+        raise ValueError("results.digital_perplexity must be finite.")
 
     return payload
 
 
 def extract_sensitivity_tables(
     payload: Mapping[str, Any],
-) -> Tuple[
-    Dict[str, Dict[str, float]],
-    Dict[str, Dict[str, float]],
-    float,
-]:
-    """Convert runner projection records into nested plotting tables.
-
-    Returns:
-        sensitivities:
-            ``block -> projection -> mean delta perplexity``
-        sensitivity_stds:
-            ``block -> projection -> standard deviation across realizations``
-        digital_perplexity:
-            clean FP32 perplexity
-    """
-    results = payload.get("results", payload)
+) -> Tuple[SensitivityTable, SensitivityTable, float]:
+    """Convert projection records into block/projection lookup tables."""
+    results = payload["results"]
     projections = results["projections"]
 
-    sensitivities: Dict[str, Dict[str, float]] = {}
-    sensitivity_stds: Dict[str, Dict[str, float]] = {}
+    sensitivities: SensitivityTable = {}
+    sensitivity_stds: SensitivityTable = {}
 
+    required_fields = {"block_id", "proj_name", "sensitivity_mean", "sensitivity_std"}
     for index, record in enumerate(projections):
         if not isinstance(record, Mapping):
-            raise TypeError(
-                f"Projection result at index {index} is not an object."
-            )
+            raise TypeError(f"Projection record {index} is not an object.")
 
-        required = {
-            "block_id",
-            "proj_name",
-            "sensitivity_mean",
-        }
-        missing = required.difference(record)
+        missing = required_fields.difference(record)
         if missing:
-            raise ValueError(
-                f"Projection result at index {index} is missing: "
-                f"{sorted(missing)}"
-            )
+            raise ValueError(f"Projection record {index} is missing {sorted(missing)}.")
 
-        block_id = normalize_block_id(str(record["block_id"]))
-        proj_name = normalize_projection_name(str(record["proj_name"]))
+        block_id = str(record["block_id"])
+        proj_name = str(record["proj_name"])
         mean_value = float(record["sensitivity_mean"])
-        std_value = float(record.get("sensitivity_std", np.nan))
+        std_value = float(record["sensitivity_std"])
 
-        if not np.isfinite(mean_value):
-            raise ValueError(
-                f"Non-finite sensitivity for {block_id}/{proj_name}: "
-                f"{mean_value}"
-            )
-
-        if not np.isnan(std_value) and not np.isfinite(std_value):
-            raise ValueError(
-                f"Invalid sensitivity standard deviation for "
-                f"{block_id}/{proj_name}: {std_value}"
-            )
+        if proj_name not in PROJECTION_ORDER:
+            raise ValueError(f"Unknown projection name: {proj_name!r}")
+        if not np.isfinite(mean_value) or not np.isfinite(std_value):
+            raise ValueError(f"Non-finite sensitivity for {block_id}/{proj_name}.")
 
         block_values = sensitivities.setdefault(block_id, {})
         if proj_name in block_values:
-            raise ValueError(
-                f"Duplicate projection result: {block_id}/{proj_name}"
-            )
+            raise ValueError(f"Duplicate projection result: {block_id}/{proj_name}")
 
         block_values[proj_name] = mean_value
         sensitivity_stds.setdefault(block_id, {})[proj_name] = std_value
 
-    digital_perplexity = float(results.get("digital_perplexity", np.nan))
-
-    # Backward compatibility for older records that repeated ppl_clean inside
-    # each projection result.
-    if not np.isfinite(digital_perplexity):
-        clean_values = {
-            float(record["ppl_clean"])
-            for record in projections
-            if "ppl_clean" in record
-        }
-        if len(clean_values) == 1:
-            digital_perplexity = next(iter(clean_values))
-
-    return sensitivities, sensitivity_stds, digital_perplexity
+    return sensitivities, sensitivity_stds, float(results["digital_perplexity"])
 
 
-def projection_value_or_nan(
-    block_sensitivities: Mapping[str, float],
-    proj_name: str,
-) -> float:
-    """Return a projection value or NaN when absent from a block."""
-    return float(block_sensitivities.get(proj_name, np.nan))
+def configured_projection_order(sensitivities: Mapping[str, Mapping[str, float]]) -> List[str]:
+    """Return profiler projection names that are present in this run."""
+    present = {
+        proj_name
+        for block_values in sensitivities.values()
+        for proj_name in block_values
+    }
+    return [proj_name for proj_name in PROJECTION_ORDER if proj_name in present]
 
 
-def finite_values(
-    sensitivities: Mapping[str, Mapping[str, float]],
-) -> np.ndarray:
-    """Return all finite sensitivity means."""
+def finite_values(sensitivities: Mapping[str, Mapping[str, float]]) -> np.ndarray:
+    """Return all finite mean sensitivity values."""
     values = [
         float(value)
-        for block in sensitivities.values()
-        for value in block.values()
+        for block_values in sensitivities.values()
+        for value in block_values.values()
         if np.isfinite(value)
     ]
-
     if not values:
         raise ValueError("No finite sensitivity values were found.")
-
     return np.asarray(values, dtype=np.float64)
 
 
-def configured_projection_order(
-    sensitivities: Mapping[str, Mapping[str, float]],
-) -> List[str]:
-    """Return canonical projection names actually present in the results."""
-    present = {
-        projection
-        for block_values in sensitivities.values()
-        for projection in block_values
-    }
-
-    ordered = [
-        projection
-        for projection in PROJECTION_ORDER
-        if projection in present
-    ]
-
-    extras = sorted(present.difference(PROJECTION_ORDER))
-    return ordered + extras
+def projection_value_or_nan(
+    block_values: Mapping[str, float],
+    proj_name: str,
+) -> float:
+    """Return a projection sensitivity or NaN when the projection is absent."""
+    return float(block_values.get(proj_name, np.nan))
 
 
-def configure_delta_ppl_axis(
-    ax: Any,
-    values: Sequence[float],
-) -> str:
-    """Use log scale for positive data and symmetric-log otherwise."""
+def configure_delta_ppl_axis(ax: Any, values: Sequence[float]) -> None:
+    """Use log scale for positive deltas and symlog when signs are mixed."""
     values_array = np.asarray(values, dtype=np.float64)
     values_array = values_array[np.isfinite(values_array)]
-
     if values_array.size == 0:
-        return "linear"
+        return
 
     if np.all(values_array > 0.0):
         ax.set_yscale("log")
         ax.yaxis.set_major_locator(mticker.LogLocator(base=10.0))
-        ax.yaxis.set_major_formatter(
-            mticker.LogFormatterMathtext(base=10.0)
-        )
-        ax.yaxis.set_minor_locator(
-            mticker.LogLocator(
-                base=10.0,
-                subs=np.arange(2, 10) * 0.1,
-            )
-        )
+        ax.yaxis.set_major_formatter(mticker.LogFormatterMathtext(base=10.0))
         ax.yaxis.set_minor_formatter(mticker.NullFormatter())
-        return "log"
+        return
 
-    maximum = float(np.max(np.abs(values_array)))
-    positive_nonzero = np.abs(values_array[np.nonzero(values_array)])
-
-    if positive_nonzero.size:
-        linthresh = max(
-            float(np.min(positive_nonzero)),
-            maximum * 1e-4,
-            1e-12,
-        )
-    else:
-        linthresh = 1e-12
-
-    ax.set_yscale(
-        "symlog",
-        linthresh=linthresh,
-        base=10,
-    )
-    return "symlog"
+    absolute_values = np.abs(values_array)
+    nonzero_values = absolute_values[absolute_values > 0.0]
+    linthresh = max(float(nonzero_values.min()), float(absolute_values.max()) * 1e-4, 1e-12)
+    ax.set_yscale("symlog", linthresh=linthresh, base=10)
 
 
-def analyze_sensitivities(
+def summarize_sensitivities(
     sensitivities: Mapping[str, Mapping[str, float]],
     sensitivity_stds: Mapping[str, Mapping[str, float]],
     digital_perplexity: float,
-) -> Tuple[Dict[str, float], Dict[str, List[float]]]:
-    """Print summary statistics and sensitivity rankings."""
+) -> None:
+    """Print compact sensitivity statistics and rankings."""
     all_values = finite_values(sensitivities)
-    block_avgs: Dict[str, float] = {}
-    proj_values: Dict[str, List[float]] = {}
+    projection_names = configured_projection_order(sensitivities)
 
-    for block_id in sorted(sensitivities, key=block_sort_key):
-        values = np.asarray(
-            list(sensitivities[block_id].values()),
-            dtype=np.float64,
-        )
-        block_avgs[block_id] = float(np.mean(values))
-
-        for proj_name, value in sensitivities[block_id].items():
-            proj_values.setdefault(proj_name, []).append(float(value))
-
-    print("\n" + "=" * 70)
-    print("PHASE 1: AIHWKIT SENSITIVITY ANALYSIS")
-    print("=" * 70)
-
-    if np.isfinite(digital_perplexity):
-        print(
-            f"\nDigital FP32 perplexity: "
-            f"{digital_perplexity:.6f}"
-        )
-
-    print(f"\nProfiled projection records: {len(all_values)}")
+    print("\n" + "=" * 72)
+    print("PHASE 1 AIHWKIT PROJECTION-SENSITIVITY ANALYSIS")
+    print("=" * 72)
+    print(f"\nDigital FP32 perplexity: {digital_perplexity:.6f}")
+    print(f"Profiled projections: {all_values.size}")
 
     print("\nOverall delta-perplexity statistics:")
-    print(f"  Mean sensitivity: {np.mean(all_values):.6f}")
-    print(f"  Std sensitivity:  {np.std(all_values):.6f}")
-    print(f"  Min sensitivity:  {np.min(all_values):.6f}")
-    print(f"  Max sensitivity:  {np.max(all_values):.6f}")
+    print(f"  Mean: {all_values.mean():.6f}")
+    print(f"  Std:  {all_values.std(ddof=0):.6f}")
+    print(f"  Min:  {all_values.min():.6f}")
+    print(f"  Max:  {all_values.max():.6f}")
 
-    print("\nBlock-level average sensitivities:")
-    for block_id in sorted(block_avgs, key=block_sort_key):
-        print(f"  {block_id:8s}: {block_avgs[block_id]:.6f}")
+    print("\nBlock-average sensitivity:")
+    for block_id in sorted(sensitivities, key=block_sort_key):
+        values = np.asarray(list(sensitivities[block_id].values()), dtype=np.float64)
+        print(f"  {block_id:8s}: {values.mean():.6f}")
 
-    print("\nProjection-type average sensitivities:")
-    for proj_name in configured_projection_order(sensitivities):
-        values = np.asarray(proj_values[proj_name], dtype=np.float64)
+    print("\nProjection-type sensitivity:")
+    for proj_name in projection_names:
+        values = np.asarray(
+            [
+                block_values[proj_name]
+                for block_values in sensitivities.values()
+                if proj_name in block_values
+            ],
+            dtype=np.float64,
+        )
         print(
-            f"  {proj_name:12s}: "
-            f"mean={np.mean(values):.6f}, "
-            f"std={np.std(values):.6f}, "
-            f"range=[{np.min(values):.6f}, "
-            f"{np.max(values):.6f}]"
+            f"  {proj_name:12s}: mean={values.mean():.6f}, "
+            f"std={values.std(ddof=0):.6f}, "
+            f"range=[{values.min():.6f}, {values.max():.6f}]"
         )
 
     ranked: List[Tuple[float, float, str]] = []
-    for block_id, projections in sensitivities.items():
-        for proj_name, mean_value in projections.items():
-            std_value = sensitivity_stds.get(block_id, {}).get(
-                proj_name,
-                np.nan,
-            )
+    for block_id, block_values in sensitivities.items():
+        for proj_name, mean_value in block_values.items():
             ranked.append(
                 (
                     float(mean_value),
-                    float(std_value),
+                    float(sensitivity_stds[block_id][proj_name]),
                     f"{block_id}/{proj_name}",
                 )
             )
-
     ranked.sort(key=lambda item: item[0], reverse=True)
     top_count = min(5, len(ranked))
 
     print(f"\nTop {top_count} most sensitive projections:")
-    for rank, (mean_value, std_value, name) in enumerate(
-        ranked[:top_count],
-        start=1,
-    ):
-        if np.isfinite(std_value):
-            print(
-                f"  {rank}. {name:28s}: "
-                f"{mean_value:.6f} +/- {std_value:.6f}"
-            )
-        else:
-            print(f"  {rank}. {name:28s}: {mean_value:.6f}")
+    for rank, (mean_value, std_value, label) in enumerate(ranked[:top_count], start=1):
+        print(f"  {rank}. {label:28s}: {mean_value:.6f} +/- {std_value:.6f}")
 
     print(f"\nBottom {top_count} least sensitive projections:")
-    least_sensitive = sorted(ranked, key=lambda item: item[0])[:top_count]
-    for rank, (mean_value, std_value, name) in enumerate(
-        least_sensitive,
-        start=1,
-    ):
-        if np.isfinite(std_value):
-            print(
-                f"  {rank}. {name:28s}: "
-                f"{mean_value:.6f} +/- {std_value:.6f}"
-            )
-        else:
-            print(f"  {rank}. {name:28s}: {mean_value:.6f}")
-
-    return block_avgs, proj_values
+    for rank, (mean_value, std_value, label) in enumerate(ranked[-top_count:][::-1], start=1):
+        print(f"  {rank}. {label:28s}: {mean_value:.6f} +/- {std_value:.6f}")
 
 
 def plot_sensitivities(
     sensitivities: Mapping[str, Mapping[str, float]],
     output_dir: Path,
 ) -> List[Path]:
-    """Generate the three Phase 1 sensitivity plots."""
+    """Create heatmap, projection-distribution, and per-block plots."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
     blocks = sorted(sensitivities, key=block_sort_key)
-    proj_names = configured_projection_order(sensitivities)
+    projection_names = configured_projection_order(sensitivities)
     all_values = finite_values(sensitivities)
     output_files: List[Path] = []
 
-    # ------------------------------------------------------------------
-    # Plot 1: heatmap of mean delta perplexity
-    # ------------------------------------------------------------------
-    heatmap_height = max(4.0, 0.45 * len(blocks) + 1.5)
-    fig, ax = plt.subplots(figsize=(12, heatmap_height))
-
-    data = np.full(
-        (len(blocks), len(proj_names)),
-        np.nan,
-        dtype=np.float64,
-    )
-
+    heatmap_data = np.full((len(blocks), len(projection_names)), np.nan, dtype=np.float64)
     for row, block_id in enumerate(blocks):
-        for column, proj_name in enumerate(proj_names):
-            data[row, column] = projection_value_or_nan(
+        for column, proj_name in enumerate(projection_names):
+            heatmap_data[row, column] = projection_value_or_nan(
                 sensitivities[block_id],
                 proj_name,
             )
 
-    masked_data = np.ma.masked_invalid(data)
-    im = ax.imshow(masked_data, cmap="YlOrRd", aspect="auto")
-
-    ax.set_xticks(range(len(proj_names)))
+    fig, ax = plt.subplots(figsize=(12, max(4.0, 0.45 * len(blocks) + 1.5)))
+    image = ax.imshow(np.ma.masked_invalid(heatmap_data), cmap="YlOrRd", aspect="auto")
+    ax.set_xticks(range(len(projection_names)))
     ax.set_yticks(range(len(blocks)))
-    ax.set_xticklabels(proj_names, rotation=20, ha="right")
+    ax.set_xticklabels(projection_names, rotation=20, ha="right")
     ax.set_yticklabels(blocks)
-    ax.set_ylabel("Transformer Block")
-    ax.set_xlabel("Projection Type")
-    ax.set_title("Projection Programming-Noise Sensitivity Heatmap")
-
-    colorbar = plt.colorbar(im, ax=ax)
-    colorbar.set_label("Mean Delta Perplexity")
+    ax.set_xlabel("Projection")
+    ax.set_ylabel("GPT-2 block")
+    ax.set_title("Phase 1 Projection Sensitivity")
+    plt.colorbar(image, ax=ax, label="Mean Delta Perplexity")
 
     for row in range(len(blocks)):
-        for column in range(len(proj_names)):
-            value = data[row, column]
-            label = "-" if np.isnan(value) else f"{value:.5g}"
+        for column in range(len(projection_names)):
+            value = heatmap_data[row, column]
             ax.text(
                 column,
                 row,
-                label,
+                "-" if np.isnan(value) else f"{value:.5g}",
                 ha="center",
                 va="center",
-                color="black",
                 fontsize=8,
             )
 
     plt.tight_layout()
-    heatmap_file = output_dir / "phase1_sensitivity_heatmap.png"
-    plt.savefig(heatmap_file, dpi=150)
+    heatmap_path = output_dir / "phase1_sensitivity_heatmap.png"
+    plt.savefig(heatmap_path, dpi=150)
     plt.close(fig)
-    output_files.append(heatmap_file)
-    print(f"\nSaved: {heatmap_file.name}")
+    output_files.append(heatmap_path)
 
-    # ------------------------------------------------------------------
-    # Plot 2: distribution by projection type
-    # ------------------------------------------------------------------
     fig, ax = plt.subplots(figsize=(10, 6))
-
-    projection_data: Dict[str, List[float]] = {
-        projection: [] for projection in proj_names
-    }
-
-    for block_id in blocks:
-        for proj_name in proj_names:
-            value = projection_value_or_nan(
-                sensitivities[block_id],
-                proj_name,
-            )
-            if np.isfinite(value):
-                projection_data[proj_name].append(value)
-
     boxplot_data = [
-        projection_data[projection]
-        for projection in proj_names
+        [
+            sensitivities[block_id][proj_name]
+            for block_id in blocks
+            if proj_name in sensitivities[block_id]
+        ]
+        for proj_name in projection_names
     ]
+    box = ax.boxplot(boxplot_data, patch_artist=True)
+
+    for patch, proj_name in zip(box["boxes"], projection_names):
+        patch.set_facecolor(PROJECTION_COLORS.get(proj_name, "darkred"))
 
     ax.boxplot(boxplot_data)
-    ax.set_xticks(range(1, len(proj_names) + 1))
-    ax.set_xticklabels(proj_names, rotation=20, ha="right")
-
+    ax.set_xticks(range(1, len(projection_names) + 1))
+    ax.set_xticklabels(projection_names, rotation=20, ha="right")
     configure_delta_ppl_axis(ax, all_values)
     ax.set_ylabel("Mean Delta Perplexity")
-    ax.set_title("Sensitivity Distribution by Projection Type")
-    ax.grid(True, alpha=0.3)
+    ax.set_title("Sensitivity Distribution by Projection")
+    ax.grid(True, alpha=0.3, axis="y")
 
     plt.tight_layout()
-    distribution_file = (
-        output_dir / "phase1_sensitivity_distribution.png"
-    )
-    plt.savefig(distribution_file, dpi=150)
+    distribution_path = output_dir / "phase1_sensitivity_distribution.png"
+    plt.savefig(distribution_path, dpi=150)
     plt.close(fig)
-    output_files.append(distribution_file)
-    print(f"Saved: {distribution_file.name}")
+    output_files.append(distribution_path)
 
-    # ------------------------------------------------------------------
-    # Plot 3: grouped per-block sensitivity
-    # ------------------------------------------------------------------
-    block_plot_width = max(10.0, 0.8 * len(blocks))
-    fig, ax = plt.subplots(figsize=(block_plot_width, 6))
+    fig, ax = plt.subplots(figsize=(max(10.0, 0.8 * len(blocks)), 6))
+    x_positions = np.arange(len(blocks))
+    width = min(0.8 / max(len(projection_names), 1), 0.18)
+    center = (len(projection_names) - 1) / 2.0
 
-    x = np.arange(len(blocks))
-    width = min(0.8 / max(len(proj_names), 1), 0.18)
-    center = (len(proj_names) - 1) / 2.0
-
-    for index, proj_name in enumerate(proj_names):
-        values = [
-            projection_value_or_nan(
-                sensitivities[block_id],
-                proj_name,
-            )
-            for block_id in blocks
-        ]
+    for index, proj_name in enumerate(projection_names):
+        values = [projection_value_or_nan(sensitivities[block_id], proj_name) for block_id in blocks]
         ax.bar(
-            x + (index - center) * width,
+            x_positions + (index - center) * width,
             values,
             width=width,
             label=proj_name,
+            color=PROJECTION_COLORS.get(proj_name, "darkred"),
         )
 
-    ax.set_xticks(x)
+    ax.set_xticks(x_positions)
     ax.set_xticklabels(blocks, rotation=30, ha="right")
     configure_delta_ppl_axis(ax, all_values)
     ax.set_ylabel("Mean Delta Perplexity")
-    ax.set_title("Per-Block Sensitivity by Projection Type")
+    ax.set_title("Per-Block Sensitivity by Projection")
     ax.legend()
     ax.grid(True, alpha=0.3, axis="y")
 
     plt.tight_layout()
-    block_file = output_dir / "phase1_sensitivity_by_block.png"
-    plt.savefig(block_file, dpi=150)
+    block_path = output_dir / "phase1_sensitivity_by_block.png"
+    plt.savefig(block_path, dpi=150)
     plt.close(fig)
-    output_files.append(block_file)
-    print(f"Saved: {block_file.name}")
+    output_files.append(block_path)
 
     return output_files
 
@@ -639,89 +373,51 @@ def plot_sensitivities(
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description=(
-            "Analyze and plot the Phase 1 AIHWKIT projection-"
-            "sensitivity output."
-        )
+        description="Analyze and plot Phase 1 AIHWKit sensitivity results."
     )
-
     selection = parser.add_mutually_exclusive_group()
-    selection.add_argument(
-        "--results-file",
-        type=Path,
-        help="Specific Phase 1 runner JSON output.",
-    )
-    selection.add_argument(
-        "--results-dir",
-        type=Path,
-        help="Directory containing Phase 1 result JSON files.",
-    )
-
+    selection.add_argument("--results-file", type=Path, help="Specific Phase 1 JSON result.")
+    selection.add_argument("--results-dir", type=Path, help="Directory containing Phase 1 JSON results.")
     parser.add_argument(
         "--pattern",
         default=RESULT_FILE_PATTERN,
-        help="Filename pattern used when locating the newest result file.",
+        help="Filename pattern used when selecting the newest result file.",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        help=(
-            "Directory for generated plots. Defaults to the selected "
-            "result file's directory."
-        ),
+        help="Directory for plots. Defaults to the selected result file directory.",
     )
-
     return parser.parse_args()
 
 
 def main() -> None:
-    """Load one AIHWKIT run, analyze it, and create plots."""
+    """Load one Phase 1 result file, summarize it, and generate plots."""
     args = parse_args()
 
     if args.results_file is not None:
         results_file = args.results_file.expanduser().resolve()
     else:
-        results_dir = (
-            args.results_dir.expanduser().resolve()
-            if args.results_dir is not None
-            else None
-        )
         results_file = find_latest_results_file(
-            explicit_results_dir=results_dir,
+            results_dir=args.results_dir,
             pattern=args.pattern,
         )
 
-    output_dir = (
-        args.output_dir.expanduser().resolve()
-        if args.output_dir is not None
-        else results_file.parent
-    )
+    output_dir = args.output_dir.expanduser().resolve() if args.output_dir else results_file.parent
 
-    print("\nLoading AIHWKIT results from:")
+    print("\nLoading Phase 1 results:")
     print(f"  Results: {results_file}")
     print(f"  Plots:   {output_dir}")
 
     payload = load_results_payload(results_file)
-    (
-        sensitivities,
-        sensitivity_stds,
-        digital_perplexity,
-    ) = extract_sensitivity_tables(payload)
+    sensitivities, sensitivity_stds, digital_perplexity = extract_sensitivity_tables(payload)
+    summarize_sensitivities(sensitivities, sensitivity_stds, digital_perplexity)
+    output_files = plot_sensitivities(sensitivities, output_dir)
 
-    analyze_sensitivities(
-        sensitivities=sensitivities,
-        sensitivity_stds=sensitivity_stds,
-        digital_perplexity=digital_perplexity,
-    )
-
-    plot_sensitivities(
-        sensitivities=sensitivities,
-        output_dir=output_dir,
-    )
-
-    print("\n" + "=" * 70)
-    print("Phase 1 AIHWKIT analysis complete.")
-    print("=" * 70 + "\n")
+    print("\nSaved plots:")
+    for path in output_files:
+        print(f"  {path}")
+    print("\nPhase 1 analysis complete.\n")
 
 
 if __name__ == "__main__":

@@ -1,3 +1,3 @@
-from .sensitivity_profiler import SensitivityProfiler
+from .aihwkit_profiler import AIHWKITSensitivityProfiler
 
-__all__ = ["SensitivityProfiler"]
+__all__ = ["AIHWKITSensitivityProfiler"]

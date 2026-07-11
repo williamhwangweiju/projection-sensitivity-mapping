@@ -1,4 +1,4 @@
-from .tile_fidelity import TileFidelityModel
+from .tile_fidelity import TileFidelityModel, TileFidelityTrace
 from .hardware import HardwareConfig
 
-__all__ = ["TileFidelityModel", "HardwareConfig"]
+__all__ = ["TileFidelityModel", "TileFidelityTrace", "HardwareConfig"]
