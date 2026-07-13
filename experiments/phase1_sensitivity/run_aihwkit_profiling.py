@@ -308,7 +308,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config",
         type=Path,
-        default=REPO_ROOT / "configs" / "lammie_2026.yaml",
+        default=REPO_ROOT / "configs" / "phase1_sensitivity" / "lammie_2026.yaml",
     )
     args = parser.parse_args()
     main(args.config)
