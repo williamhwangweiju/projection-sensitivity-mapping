@@ -69,7 +69,7 @@ class AIHWKITSensitivityProfiler:
         self.profile_blocks = tuple(int(index) for index in profiling_cfg["profile_blocks"])
         self.seed = int(experiment_cfg["seed"])
         self.weight_scaling_omega = float(
-            profiling_cfg.get("weight_scaling_omega", 1.0)
+            profiling_cfg.get("weight_scaling_omega", 0.0)
         )
         self.weight_scaling_columnwise = bool(
             profiling_cfg.get("weight_scaling_columnwise", False)

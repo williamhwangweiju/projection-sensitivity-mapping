@@ -2,12 +2,12 @@ experiment:
   name: phase3_baselines
   seed: 42
   output_root: data/results/phase3_baselines
-  resolved_output_directory: /Users/hwangweiju/ML_HW_Reasearch.worktrees/agents-phase3-implementation-start/data/results/phase3_baselines/phase3_baselines/seed_42
+  resolved_output_directory: /Users/hwangweiju/ML_HW_Reasearch/data/results/phase3_baselines/phase3_baselines/seed_42
 phase1:
-  results_path: /Users/hwangweiju/ML_HW_Reasearch.worktrees/agents-phase3-implementation-start/data/results/phase1_sensitivity/programming_noise_sensitivity_20260711_190225.json
+  results_path: /Users/hwangweiju/ML_HW_Reasearch/data/results/phase1_sensitivity/programming_noise_sensitivity_20260713_032310.json
 phase2:
-  trace_path: /Users/hwangweiju/ML_HW_Reasearch.worktrees/agents-phase3-implementation-start/data/results/phase2_fidelity/fidelity_traces/phase2_mixed/seed_42/trace.npz
-  metadata_path: /Users/hwangweiju/ML_HW_Reasearch.worktrees/agents-phase3-implementation-start/data/results/phase2_fidelity/fidelity_traces/phase2_mixed/seed_42/metadata.json
+  trace_path: /Users/hwangweiju/ML_HW_Reasearch/data/results/phase2_fidelity/fidelity_traces/phase2_mixed/seed_42/trace.npz
+  metadata_path: /Users/hwangweiju/ML_HW_Reasearch/data/results/phase2_fidelity/fidelity_traces/phase2_mixed/seed_42/metadata.json
 phase3:
   include_lm_head: false
   reference_noise_std: 0.023

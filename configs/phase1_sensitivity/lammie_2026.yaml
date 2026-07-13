@@ -24,7 +24,8 @@ profiling:
   tile_size: 512
   adc_dac_bits: 8
   programming_noise_scale: 1.0
-  num_seeds: 1
+  weight_scaling_omega: 1.0
+  num_seeds: 10
   seed_stride: 1
   profile_blocks:
     - 0

@@ -6,9 +6,9 @@
     "timestep_summary": "timestep_summary.csv",
     "trace": "trace.npz"
   },
-  "config_path": "/Users/hwangweiju/ML_HW_Reasearch.worktrees/agents-phase3-implementation-start/configs/phase2_fidelity/mixed.yaml",
+  "config_path": "/Users/hwangweiju/ML_HW_Reasearch/configs/phase2_fidelity/mixed.yaml",
   "experiment_name": "phase2_mixed",
-  "generated_at_utc": "2026-07-11T23:02:27.707394+00:00",
+  "generated_at_utc": "2026-07-13T07:23:14.921359+00:00",
   "model_metadata": {
     "class_code_mapping": {
       "0": "high",
@@ -93,7 +93,7 @@
       60
     ]
   },
-  "output_directory": "/Users/hwangweiju/ML_HW_Reasearch.worktrees/agents-phase3-implementation-start/data/results/phase2_fidelity/fidelity_traces/phase2_mixed/seed_42",
+  "output_directory": "/Users/hwangweiju/ML_HW_Reasearch/data/results/phase2_fidelity/fidelity_traces/phase2_mixed/seed_42",
   "phase": "phase2_fidelity",
   "seed": 42,
   "summary": {

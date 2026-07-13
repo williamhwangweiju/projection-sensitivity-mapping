@@ -10,7 +10,7 @@
     "timestep_metrics": "timestep_metrics.csv"
   },
   "experiment_name": "phase3_baselines",
-  "generated_at_utc": "2026-07-11T23:03:34.772925+00:00",
+  "generated_at_utc": "2026-07-13T07:24:14.031612+00:00",
   "hardware": {
     "dram_active_power": 0.2467,
     "dram_bandwidth": 5.332,
@@ -24,9 +24,9 @@
     "tiles": 64
   },
   "inputs": {
-    "phase1_results": "/Users/hwangweiju/ML_HW_Reasearch.worktrees/agents-phase3-implementation-start/data/results/phase1_sensitivity/programming_noise_sensitivity_20260711_190225.json",
-    "phase2_metadata": "/Users/hwangweiju/ML_HW_Reasearch.worktrees/agents-phase3-implementation-start/data/results/phase2_fidelity/fidelity_traces/phase2_mixed/seed_42/metadata.json",
-    "phase2_trace": "/Users/hwangweiju/ML_HW_Reasearch.worktrees/agents-phase3-implementation-start/data/results/phase2_fidelity/fidelity_traces/phase2_mixed/seed_42/trace.npz"
+    "phase1_results": "/Users/hwangweiju/ML_HW_Reasearch/data/results/phase1_sensitivity/programming_noise_sensitivity_20260713_032310.json",
+    "phase2_metadata": "/Users/hwangweiju/ML_HW_Reasearch/data/results/phase2_fidelity/fidelity_traces/phase2_mixed/seed_42/metadata.json",
+    "phase2_trace": "/Users/hwangweiju/ML_HW_Reasearch/data/results/phase2_fidelity/fidelity_traces/phase2_mixed/seed_42/trace.npz"
   },
   "phase": "phase3_baselines",
   "seed": 42,
