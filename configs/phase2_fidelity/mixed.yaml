@@ -3,8 +3,8 @@ experiment:
   seed: 42
 
 hardware:
-  num_tiles: 64
-  tiers_per_tile: 16
+  num_tiles: 72
+  tiers_per_tile: 8
   tier_shape:
     rows: 512
     cols: 512
