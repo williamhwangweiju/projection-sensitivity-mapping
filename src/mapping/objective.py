@@ -1,175 +1,151 @@
-"""Phase 3 objective and evaluation utilities."""
+"""Phase-3 sensitivity-weighted placement proxy.
+
+The proxy combines Phase-1 total DeltaPPL sensitivity with the squared ratio
+of each mapped tile's current noise to the Phase-1 reference noise.  It is a
+placement heuristic, not a prediction of full-model Phase-4 DeltaPPL.
+"""
 
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import numpy as np
-
-from src.simulators.tile_fidelity import TileFidelityTrace
 
 from .placement import Placement
 from .sharding import ProjectionShard
 
 
+def _trace_arrays(trace: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    noise = np.asarray(trace.noise_std, dtype=np.float64)
+    faulted = np.asarray(trace.faulted, dtype=bool)
+    available = np.asarray(trace.available, dtype=bool)
+    if noise.ndim != 2 or faulted.shape != noise.shape or available.shape != noise.shape:
+        raise ValueError("Phase-2 trace arrays must all have shape [T, num_tiles].")
+    return noise, faulted, available
+
+
 def evaluate_placement_over_trace(
     *,
     placement: Placement,
-    shards: list[ProjectionShard],
-    trace: TileFidelityTrace,
+    shards: Sequence[ProjectionShard],
+    trace: Any,
     reference_noise_std: float,
 ) -> list[dict[str, Any]]:
-    """Evaluate one static placement over all timesteps in a fidelity trace."""
+    """Evaluate a static placement using a sensitivity-weighted proxy.
+
+    For shard ``s`` from projection ``p`` on tile ``i`` at timestep ``t``::
+
+        proxy_s,t = shard_weight_s * DeltaPPL_p,reference
+                    * (sigma_i,t / sigma_reference)^2
+
+    The score is used only to compare placements under a shared trace.
+    """
+
     if reference_noise_std <= 0.0:
         raise ValueError("reference_noise_std must be positive.")
-
-    shard_by_id = {
-        shard.shard_id: shard
-        for shard in shards
-    }
+    noise, faulted, available = _trace_arrays(trace)
 
     rows: list[dict[str, Any]] = []
-    for timestep in range(trace.num_timesteps):
-        objective_sum = 0.0
-        noise_sum = 0.0
+    for timestep in range(noise.shape[0]):
+        weighted_proxy = 0.0
         weighted_noise_sum = 0.0
-        weight_sum = 0.0
-        shards_on_faulted_tiles = 0
-        shards_on_unavailable_tiles = 0
+        total_shard_weight = 0.0
+        shards_on_faulted = 0
+        shards_on_unavailable = 0
+        projections_on_faulted: set[str] = set()
+        projections_on_unavailable: set[str] = set()
 
-        projections_on_faulted_tiles: set[str] = set()
-        projections_on_unavailable_tiles: set[str] = set()
-
-        for shard_id, assignment in placement.assignments.items():
-            shard = shard_by_id[shard_id]
+        for shard in shards:
+            assignment = placement.assignments[shard.shard_id]
             tile_id = assignment.tile_id
-            tile_noise = float(trace.noise_std[timestep, tile_id])
-            tile_faulted = bool(trace.faulted[timestep, tile_id])
-            tile_available = bool(trace.available[timestep, tile_id])
-
-            shard_weight = shard.shard_weight
-            projection_sensitivity = shard.sensitivity_score
-            shard_importance = shard_weight * projection_sensitivity
-
-            objective_contribution = (
-                shard_importance
-                * (tile_noise / reference_noise_std) ** 2
+            sigma = float(noise[timestep, tile_id])
+            variance_ratio = (sigma / reference_noise_std) ** 2
+            weighted_proxy += (
+                shard.shard_weight
+                * shard.sensitivity_score
+                * variance_ratio
             )
+            weighted_noise_sum += shard.shard_weight * sigma
+            total_shard_weight += shard.shard_weight
 
-            objective_sum += objective_contribution
-            noise_sum += tile_noise
-            weighted_noise_sum += shard_importance * tile_noise
-            weight_sum += shard_importance
+            if bool(faulted[timestep, tile_id]):
+                shards_on_faulted += 1
+                projections_on_faulted.add(shard.projection_id)
+            if not bool(available[timestep, tile_id]):
+                shards_on_unavailable += 1
+                projections_on_unavailable.add(shard.projection_id)
 
-            if tile_faulted:
-                shards_on_faulted_tiles += 1
-                projections_on_faulted_tiles.add(shard.projection_id)
-            if not tile_available:
-                shards_on_unavailable_tiles += 1
-                projections_on_unavailable_tiles.add(shard.projection_id)
-
-        shard_count = len(placement.assignments)
-        mean_noise = noise_sum / shard_count if shard_count else 0.0
-        weighted_mean_noise = (
-            weighted_noise_sum / weight_sum
-            if weight_sum > 0.0
-            else 0.0
+        rows.append(
+            {
+                "policy": placement.policy_name,
+                "timestep": timestep,
+                "sensitivity_weighted_variance_proxy": float(weighted_proxy),
+                # Backward-compatible aliases.
+                "quality_proxy_delta_nll": float(weighted_proxy),
+                # Backward-compatible alias.
+                "weighted_noise_sum": float(weighted_proxy),
+                "mean_weighted_tile_noise": (
+                    weighted_noise_sum / total_shard_weight
+                    if total_shard_weight > 0.0
+                    else 0.0
+                ),
+                "reference_noise_std": float(reference_noise_std),
+                "proxy_noise_scaling": "variance_ratio_squared",
+                "shard_weight": float(total_shard_weight),
+                "shards_on_faulted": shards_on_faulted,
+                "shards_on_unavailable": shards_on_unavailable,
+                "projections_on_faulted": len(projections_on_faulted),
+                "projections_on_unavailable": len(projections_on_unavailable),
+                "available_tiles": int(np.count_nonzero(available[timestep])),
+                "faulted_tiles": int(np.count_nonzero(faulted[timestep])),
+            }
         )
-
-        placement_feasible = shards_on_unavailable_tiles == 0
-
-        row = {
-            "policy": placement.policy_name,
-            "timestep": timestep,
-            "sensitivity_weighted_tile_error": objective_sum,
-            "mean_assigned_noise_std": mean_noise,
-            "sensitivity_weighted_mean_assigned_noise_std": weighted_mean_noise,
-            "capacity_utilization": placement.capacity_utilization,
-            "shards_on_faulted_tiles": shards_on_faulted_tiles,
-            "shards_on_unavailable_tiles": shards_on_unavailable_tiles,
-            "projections_on_faulted_tiles": len(projections_on_faulted_tiles),
-            "projections_on_unavailable_tiles": len(projections_on_unavailable_tiles),
-            "placement_feasible": placement_feasible,
-            "service_failure": not placement_feasible,
-        }
-
-        if hasattr(placement, "available_capacity_utilization"):
-            row["available_capacity_utilization"] = (
-                placement.available_capacity_utilization
-            )
-
-        rows.append(row)
-
     return rows
 
 
 def build_policy_summary(
     *,
-    timestep_rows: list[dict[str, Any]],
+    timestep_rows: Sequence[Mapping[str, Any]],
     placements: Mapping[str, Placement],
 ) -> list[dict[str, Any]]:
-    """Build one summary row per static policy."""
-    rows_by_policy: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    """Aggregate Phase-3 proxy metrics by policy."""
+
+    grouped: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
     for row in timestep_rows:
-        rows_by_policy[str(row["policy"])].append(row)
+        grouped[str(row["policy"])].append(row)
 
-    summary_rows: list[dict[str, Any]] = []
-    for policy_name, rows in sorted(rows_by_policy.items()):
-        if not rows:
-            continue
-
-        rows = sorted(rows, key=lambda row: int(row["timestep"]))
-
-        objective_values = np.asarray(
-            [float(row["sensitivity_weighted_tile_error"]) for row in rows],
+    summaries: list[dict[str, Any]] = []
+    for policy, rows in sorted(grouped.items()):
+        proxy = np.asarray(
+            [float(row["sensitivity_weighted_variance_proxy"]) for row in rows],
             dtype=np.float64,
         )
-        mean_noise_values = np.asarray(
-            [float(row["mean_assigned_noise_std"]) for row in rows],
-            dtype=np.float64,
+        placement = placements[policy]
+        summaries.append(
+            {
+                "policy": policy,
+                "num_timesteps": len(rows),
+                "sensitivity_weighted_variance_proxy_mean": float(proxy.mean()),
+                "quality_proxy_delta_nll_mean": float(proxy.mean()),
+                "sensitivity_weighted_variance_proxy_std": float(proxy.std(ddof=0)),
+                "quality_proxy_delta_nll_std": float(proxy.std(ddof=0)),
+                "sensitivity_weighted_variance_proxy_initial": float(proxy[0]),
+                "quality_proxy_delta_nll_initial": float(proxy[0]),
+                "sensitivity_weighted_variance_proxy_final": float(proxy[-1]),
+                "quality_proxy_delta_nll_final": float(proxy[-1]),
+                # Backward-compatible alias.
+                "mean_sensitivity_weighted_tile_error": float(proxy.mean()),
+                "max_shards_on_faulted": max(
+                    int(row["shards_on_faulted"]) for row in rows
+                ),
+                "max_shards_on_unavailable": max(
+                    int(row["shards_on_unavailable"]) for row in rows
+                ),
+                "capacity_utilization": placement.capacity_utilization,
+                "available_capacity_utilization": (
+                    placement.available_capacity_utilization
+                ),
+            }
         )
-        weighted_noise_values = np.asarray(
-            [float(row["sensitivity_weighted_mean_assigned_noise_std"]) for row in rows],
-            dtype=np.float64,
-        )
-        faulted_counts = np.asarray(
-            [int(row["shards_on_faulted_tiles"]) for row in rows],
-            dtype=np.int64,
-        )
-        unavailable_counts = np.asarray(
-            [int(row["shards_on_unavailable_tiles"]) for row in rows],
-            dtype=np.int64,
-        )
-        service_failure_counts = np.asarray(
-            [int(bool(row.get("service_failure", False))) for row in rows],
-            dtype=np.int64,
-        )
-
-        placement = placements[policy_name]
-        summary_row = {
-            "policy": policy_name,
-            "timesteps_evaluated": len(rows),
-            "mean_sensitivity_weighted_tile_error": float(np.mean(objective_values)),
-            "final_sensitivity_weighted_tile_error": float(objective_values[-1]),
-            "peak_sensitivity_weighted_tile_error": float(np.max(objective_values)),
-            "mean_assigned_noise_std": float(np.mean(mean_noise_values)),
-            "mean_sensitivity_weighted_assigned_noise_std": float(
-                np.mean(weighted_noise_values)
-            ),
-            "max_shards_on_faulted_tiles": int(np.max(faulted_counts)),
-            "max_shards_on_unavailable_tiles": int(np.max(unavailable_counts)),
-            "timesteps_with_service_failure": int(np.sum(service_failure_counts)),
-            "capacity_utilization": placement.capacity_utilization,
-            "remapping_events": 0,
-            "weight_data_moved_after_initialization": 0,
-        }
-
-        if hasattr(placement, "available_capacity_utilization"):
-            summary_row["available_capacity_utilization"] = (
-                placement.available_capacity_utilization
-            )
-
-        summary_rows.append(summary_row)
-
-    return summary_rows
+    return summaries

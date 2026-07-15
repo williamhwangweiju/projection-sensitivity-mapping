@@ -49,7 +49,6 @@ from src.mapping.sharding import (  # noqa: E402
     mapped_shard_records_to_placement_rows,
 )
 from src.simulators.tile_fidelity import TileFidelityTrace  # noqa: E402
-from src.simulators.tile_fidelity import TileFidelityTrace  # noqa: E402
 
 
 LOGGER = logging.getLogger("phase3_baselines")
@@ -146,18 +145,17 @@ def resolve_output_directory(
     if cli_output_dir is not None:
         return cli_output_dir.expanduser().resolve()
 
-    experiment_cfg = config.get("experiment", {})
-    if experiment_cfg is None:
-        experiment_cfg = {}
-    if not isinstance(experiment_cfg, Mapping):
-        raise ValueError("experiment must be a mapping when provided.")
-
-    raw_output_root = experiment_cfg.get("output_root", DEFAULT_OUTPUT_ROOT)
+    phase3_cfg = config.get("phase3", {}) or {}
+    if not isinstance(phase3_cfg, Mapping):
+        raise ValueError("phase3 must be a mapping.")
+    raw_output_root = phase3_cfg.get(
+        "output_root",
+        DEFAULT_OUTPUT_ROOT,
+    )
     output_root = Path(raw_output_root).expanduser()
     if not output_root.is_absolute():
         output_root = REPOSITORY_ROOT / output_root
     return output_root.resolve() / experiment_name / f"seed_{seed}"
-
 
 def prepare_output_directory(output_directory: Path, *, overwrite: bool) -> None:
     if output_directory.exists():
@@ -393,24 +391,35 @@ def map_model_for_policy(
     sensitivity_lookup: Mapping[tuple[str, str], float],
     tile_priority: list[int],
     seed: int,
-    stack_embedding: bool,
-    include_lm_head: bool,
+    reference_noise_std: float,
+    num_hidden_layers: int,
 ) -> list[MappedModuleSpec]:
+    """Map only the analog transformer projections.
+
+    Token/position embeddings and lm_head remain digital and are excluded from
+    both accelerator capacity and Phase-4 weight injection.
+    """
     mapper = Mapper(
         accelerator=accelerator,
         model=model,
         map_strategy=MapStrategy(
             strategy=Strategy.GREEDY_IN_ORDER,
             split_ffn=True,
-            stack_embedding=stack_embedding,
+            stack_embedding=False,
         ),
     )
 
-    modules = iter_mappable_modules(model)
+    modules = iter_mappable_modules(
+        model,
+        include_embeddings=False,
+        include_lm_head=False,
+    )
     specs_by_name = build_mapped_module_specs(
         modules,
         sensitivity_lookup=sensitivity_lookup,
-        include_lm_head=include_lm_head,
+        include_lm_head=False,
+        reference_noise_std=reference_noise_std,
+        num_hidden_layers=num_hidden_layers,
     )
     group_total_weights = build_group_total_weights(list(specs_by_name.values()))
     ordered_modules = order_modules_for_policy(
@@ -423,21 +432,15 @@ def map_model_for_policy(
 
     mapped_specs: list[MappedModuleSpec] = []
     for module_name, module in ordered_modules:
-        if type(module).__name__ == "Embedding":
-            utilization = min(1.0, accelerator.config.tier_shape[0] / module.weight.shape[0])
-        else:
-            utilization = 1.0
-
         mapping, _ = mapper.shape_to_mapping(
             inp_shape=tuple(module.weight.shape),
-            utilization=utilization,
+            utilization=1.0,
             tile_indices=tile_priority,
         )
         module.set_mapping(mapping)
         mapped_specs.append(specs_by_name[module_name])
 
     return mapped_specs
-
 
 def build_effective_model(
     *,
@@ -475,11 +478,11 @@ def run_policy(
     sensitivity_lookup: Mapping[tuple[str, str], float],
     accelerator_cfg: AcceleratorConfig,
     seed: int,
+    trace_seed: int,
     model_cfg: Mapping[str, int],
     inference_cfg: Mapping[str, int],
-    stack_embedding: bool,
-    include_lm_head: bool,
     reference_noise_std: float,
+    run_performance_simulation: bool,
 ) -> dict[str, Any]:
     accelerator = Accelerator(accelerator_cfg, device="meta")
     model = build_effective_model(
@@ -494,7 +497,6 @@ def run_policy(
 
     tile_priority = build_tile_priority(trace, policy_name=policy_name, seed=seed)
     available_tiles_at_mapping = set(tile_priority)
-
     mapped_specs = map_model_for_policy(
         model=model,
         accelerator=accelerator,
@@ -502,40 +504,29 @@ def run_policy(
         sensitivity_lookup=sensitivity_lookup,
         tile_priority=tile_priority,
         seed=seed,
-        stack_embedding=stack_embedding,
-        include_lm_head=include_lm_head,
-    )
-
-    fill_name_fields(model)
-    make_traceable(model, is_traceable=True)
-    make_use_linear(model, use_linear=True)
-
-    fast_traced = fast_trace_decoder(
-        model,
-        start_len=inference_cfg["start_len"],
-        target_len=inference_cfg["target_len"],
-        bsz=inference_cfg["batch_size"],
-    )
-    
-    (
-        execution_time_ns,
-        scratchpad_memory,
-        peak_memory_bytes,
-        energy_nj,
-        flops,
-        energy_breakdown,
-        latency_breakdown,
-    ) = schedule_execution(
-        fast_traced.graph,
-        accelerator=model.accelerator,
-        copy_and_cleanup_graph=False,
-        communication=True,
+        reference_noise_std=reference_noise_std,
+        num_hidden_layers=model_cfg["num_layers"],
     )
 
     mapped_shard_records = extract_shards_from_3dcim_mapping(
         model=model,
         mapped_specs=mapped_specs,
+        tier_rows=int(accelerator_cfg.tier_shape[0]),
+        tier_cols=int(accelerator_cfg.tier_shape[1]),
     )
+    expected_tiers = int(model_cfg["num_layers"]) * 40
+    if len(mapped_shard_records) != expected_tiers:
+        raise ValueError(
+            f"Expected {expected_tiers} GPT-2 projection tiers, extracted "
+            f"{len(mapped_shard_records)}. Check Q/K/V and FFN sharding."
+        )
+    total_capacity = int(accelerator_cfg.tiles) * int(accelerator_cfg.tiers)
+    if len(mapped_shard_records) > total_capacity:
+        raise ValueError(
+            f"Projection demand {len(mapped_shard_records)} exceeds capacity "
+            f"{total_capacity}."
+        )
+
     shards = [record.shard for record in mapped_shard_records]
     placement = build_placement_from_mapped_shards(
         policy_name=policy_name,
@@ -547,6 +538,8 @@ def run_policy(
     placement_rows = mapped_shard_records_to_placement_rows(
         policy_name=policy_name,
         records=mapped_shard_records,
+        trace_seed=trace_seed,
+        placement_seed=seed,
     )
 
     quality_rows = evaluate_placement_over_trace(
@@ -555,43 +548,79 @@ def run_policy(
         trace=trace,
         reference_noise_std=float(reference_noise_std),
     )
-    policy_summary_rows = build_policy_summary(
+    summary = build_policy_summary(
         timestep_rows=quality_rows,
         placements={policy_name: placement},
-    )
-    summary = policy_summary_rows[0]
+    )[0]
+
+    simulator = {
+        "execution_time_ns": None,
+        "energy_nj": None,
+        "peak_memory_bytes": None,
+        "flops": None,
+        "energy_breakdown": None,
+        "latency_breakdown": None,
+    }
+    if run_performance_simulation:
+        # Performance simulation is optional because this unified quality
+        # workflow deliberately keeps embeddings and lm_head digital.  Enable
+        # only after the local 3D-SiM fork models those digital operations.
+        fill_name_fields(model)
+        make_traceable(model, is_traceable=True)
+        make_use_linear(model, use_linear=True)
+        fast_traced = fast_trace_decoder(
+            model,
+            start_len=inference_cfg["start_len"],
+            target_len=inference_cfg["target_len"],
+            bsz=inference_cfg["batch_size"],
+        )
+        (
+            execution_time_ns,
+            scratchpad_memory,
+            peak_memory_bytes,
+            energy_nj,
+            flops,
+            energy_breakdown,
+            latency_breakdown,
+        ) = schedule_execution(
+            fast_traced.graph,
+            accelerator=model.accelerator,
+            copy_and_cleanup_graph=False,
+            communication=True,
+        )
+        simulator = {
+            "execution_time_ns": int(execution_time_ns),
+            "energy_nj": float(energy_nj),
+            "peak_memory_bytes": float(peak_memory_bytes),
+            "flops": float(flops),
+            "scratchpad_memory_trace": _json_ready(scratchpad_memory),
+            "energy_breakdown": _json_ready(energy_breakdown),
+            "latency_breakdown": _json_ready(latency_breakdown),
+        }
+
     summary.update(
         {
-            "simulator_execution_time_ns": int(execution_time_ns),
-            "simulator_energy_nj": float(energy_nj),
-            "simulator_peak_memory_bytes": float(peak_memory_bytes),
-            "simulator_flops": float(flops),
-            "simulator_scratchpad_memory_trace": _json_ready(scratchpad_memory),
-            "simulator_energy_breakdown": _json_ready(energy_breakdown),
-            "simulator_latency_breakdown": _json_ready(latency_breakdown),
-            "lm_head_quality_included": bool(include_lm_head),
+            "simulator_execution_time_ns": simulator["execution_time_ns"],
+            "simulator_energy_nj": simulator["energy_nj"],
+            "simulator_peak_memory_bytes": simulator["peak_memory_bytes"],
+            "simulator_flops": simulator["flops"],
+            "lm_head_quality_included": False,
+            "embeddings_analog_mapped": False,
             "available_tiles_at_mapping": len(available_tiles_at_mapping),
+            "required_projection_tiers": len(mapped_shard_records),
+            "total_tier_capacity": total_capacity,
         }
     )
 
     return {
         "projection_catalog_rows": mapped_module_specs_to_rows(mapped_specs),
         "placement_rows": placement_rows,
-        "shards": shards,
         "mapped_shard_records": mapped_shard_records,
         "placement": placement,
         "quality_rows": quality_rows,
         "policy_summary": summary,
-        "simulator": {
-            "execution_time_ns": int(execution_time_ns),
-            "energy_nj": float(energy_nj),
-            "peak_memory_bytes": float(peak_memory_bytes),
-            "flops": float(flops),
-            "energy_breakdown": energy_breakdown,
-            "latency_breakdown": latency_breakdown,
-        },
+        "simulator": simulator,
     }
-
 
 def run_experiment(args: argparse.Namespace) -> Path:
     config = load_optional_yaml(args.config)
@@ -631,16 +660,15 @@ def run_experiment(args: argparse.Namespace) -> Path:
             raise ValueError("Phase 2 metadata JSON must contain a mapping.")
         phase2_metadata = dict(loaded)
 
-    experiment_cfg = config.get("experiment", {})
-    if experiment_cfg is None:
-        experiment_cfg = {}
-    if not isinstance(experiment_cfg, Mapping):
-        raise ValueError("experiment section must be a mapping.")
+    experiment_cfg = config.get("experiment", {}) or {}
+    phase3_cfg = config.get("phase3", {}) or {}
+    if not isinstance(experiment_cfg, Mapping) or not isinstance(phase3_cfg, Mapping):
+        raise ValueError("experiment and phase3 sections must be mappings.")
     seed = int(args.seed if args.seed is not None else experiment_cfg.get("seed", 42))
     experiment_name = re.sub(
         r"[^A-Za-z0-9._-]+",
         "_",
-        str(experiment_cfg.get("name", "phase3_baselines")).strip(),
+        str(phase3_cfg.get("name", "phase3_baselines")).strip(),
     ).strip("._-")
     if not experiment_name:
         raise ValueError("experiment.name does not contain usable path characters.")
@@ -654,20 +682,23 @@ def run_experiment(args: argparse.Namespace) -> Path:
     prepare_output_directory(output_directory, overwrite=args.overwrite)
 
     trace = TileFidelityTrace.load_npz(phase2_trace_path)
+    noise_unit = str(trace.metadata.get("noise_unit", ""))
+    if noise_unit != "pcmlike_prog_noise_scale_equivalent":
+        raise ValueError(
+            "Phase-2 trace noise_unit must be "
+            "'pcmlike_prog_noise_scale_equivalent', got "
+            f"{noise_unit!r}."
+        )
     sensitivity_lookup = load_phase1_sensitivity_lookup(phase1_results_path)
     hardware_mapping = get_hardware_mapping(trace, phase2_metadata, config)
-    phase3_cfg = config.get("phase3", {})
-    if phase3_cfg is None:
-        phase3_cfg = {}
-    if not isinstance(phase3_cfg, Mapping):
-        raise ValueError("phase3 section must be a mapping when provided.")
-
     reference_noise_std = resolve_reference_noise_std(
         cli_override=None,
         config=config,
         trace=trace,
     )
     include_lm_head = bool(args.include_lm_head or phase3_cfg.get("include_lm_head", False))
+    if include_lm_head:
+        raise ValueError("Unified pipeline requires include_lm_head=false.")
 
     raw_tier_shape = hardware_mapping.get(
         "tier_shape",
@@ -699,7 +730,7 @@ def run_experiment(args: argparse.Namespace) -> Path:
         tiers=int(
             hardware_mapping.get(
                 "tiers_per_tile",
-                hardware_mapping.get("tiers", 1024),
+                hardware_mapping.get("tiers", 8),
             )
         ),
         tier_shape=(tier_rows, tier_cols),
@@ -735,9 +766,11 @@ def run_experiment(args: argparse.Namespace) -> Path:
             seed=seed,
             model_cfg=model_cfg,
             inference_cfg=inference_cfg,
-            stack_embedding=bool(phase3_cfg.get("stack_embedding", True)),
-            include_lm_head=include_lm_head,
+            trace_seed=int(trace.metadata.get("seed", seed)),
             reference_noise_std=reference_noise_std,
+            run_performance_simulation=bool(
+                phase3_cfg.get("run_performance_simulation", False)
+            ),
         )
 
         if projection_catalog_rows is None:
@@ -781,7 +814,11 @@ def run_experiment(args: argparse.Namespace) -> Path:
             "tiers_per_tile": accelerator_cfg.tiers,
             "initial_available_tiles": int(np.sum(trace.available[0])),
             "reference_noise_std": reference_noise_std,
-            "include_lm_head_in_quality_objective": include_lm_head,
+            "include_lm_head_in_quality_objective": False,
+            "embeddings_and_lm_head": "digital",
+            "sensitivity_score_unit": "delta_ppl_total",
+            "proxy_noise_scaling": "variance_ratio_squared",
+            "proxy_name": "sensitivity_weighted_variance_proxy",
         },
         "artifacts": {
             "projection_catalog": PROJECTION_CATALOG_FILENAME,

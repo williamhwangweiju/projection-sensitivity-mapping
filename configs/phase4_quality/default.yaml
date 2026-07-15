@@ -1,0 +1,73 @@
+# Phase 4: Tile-Level Language-Model Quality Evaluation
+# ============================================================================
+
+experiment:
+  name: phase4_quality
+  seed: 42                        # trace seed (same as Phase 2 trace)
+  placement_seed: 42              # seed used in Phase 3 placement
+  output_root: data/results/phase4_quality
+
+model:
+  name: gpt2
+  device: cpu                     # cpu | cuda
+
+dataset:
+  # Must match Phase 1 exactly for fair NLL comparison
+  name: Salesforce/wikitext
+  config: wikitext-103-raw-v1
+  split: test
+  max_tokens: 4096                # null = use all; set a small integer for quick tests
+  sequence_length: 512
+  stride: 512
+  batch_size: 1
+  document_separator: "\n\n"
+  drop_incomplete_final_sequence: true
+
+noise:
+  # How to compute per-projection noise reference scale r_p.
+  # "weight_std"    : r_p = std(W_canonical_p)
+  # "clip_threshold": r_p = clip_sigma * std(W_canonical_p)
+  reference_method: weight_std
+  clip_sigma: 2.5                 # only used when reference_method = clip_threshold
+  # Number of paired noise realizations per (policy, timestep)
+  num_realizations: 3
+  realization_seed_stride: 1      # seed for realization k = noise_base_seed + k
+
+phase1:
+  # null = auto-select latest data/results/phase1_sensitivity/*.json
+  results_path: null
+
+phase2:
+  # null = auto-select latest data/results/phase2_fidelity/.../trace.npz
+  trace_path: null
+  metadata_path: null
+
+phase3:
+  # null = auto-select latest data/results/phase3_baselines/ output directory
+  results_dir: null
+  tile_size: 512
+
+evaluation:
+  policies:
+    - random
+    - sequential
+    - hardware_only
+    - static_sensitivity
+  # Which timesteps to evaluate. null = use representative timesteps from Phase 2 metadata.
+  # Can also be a list of integers, e.g. [0, 40, 60, 100, 119].
+  timesteps: [0, 53, 119]
+  # Whether to compute KL divergence and next-token agreement (slower)
+  compute_kl: false
+  compute_agreement: false
+  # Evaluate hard-unavailable tiles explicitly (Experiment B)
+  evaluate_hard_faults: true
+  # Hard-fault behavior: "zero_output" | "infeasible" | "digital_fallback"
+  hard_fault_behavior: zero_output
+
+output:
+  # Save per-shard noise injection records
+  save_injection_records: false
+  # Save weight checksums for restoration verification
+  save_checksums: false
+  # Save per-projection assignment CSV
+  save_assignment_csv: true

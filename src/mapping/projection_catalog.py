@@ -11,50 +11,30 @@ import re
 from typing import Any, Mapping, Sequence
 
 
-MAPPABLE_MODULE_TYPES = {"Linear", "Embedding"}
-
 PROJECTION_EXECUTION_ORDER = (
     "attn.c_attn",
     "attn.c_proj",
     "mlp.c_fc",
     "mlp.c_proj",
-    "lm_head",
 )
-
-EMBEDDING_EXECUTION_ORDER = (
-    "token_embedding",
-    "pos_embedding",
-)
-
-GPT2_SMALL_PROJECTION_SHAPES: dict[str, tuple[int, int]] = {
-    "attn.c_attn": (2304, 768),
-    "attn.c_proj": (768, 768),
-    "mlp.c_fc": (3072, 768),
-    "mlp.c_proj": (768, 3072),
-    "lm_head": (50257, 768),
-}
 
 
 @dataclass(frozen=True, slots=True)
 class ProjectionSpec:
-    """Canonical logical projection entry used by lightweight mappers."""
-
     projection_id: str
     block_id: str
     projection_name: str
     execution_index: int
-
     out_features: int
     in_features: int
     num_weights: int
-
     sensitivity_score: float
+    sensitivity_score_unit: str
+    sensitivity_reference_noise_std: float
 
 
 @dataclass(frozen=True, slots=True)
 class MappedModuleSpec:
-    """Metadata for one 3D-CIM-mappable model module."""
-
     module_name: str
     block_id: str
     projection_name: str
@@ -64,137 +44,156 @@ class MappedModuleSpec:
     in_features: int
     num_weights: int
     sensitivity_score: float
+    sensitivity_score_unit: str
+    sensitivity_reference_noise_std: float
 
     @property
     def group_key(self) -> tuple[str, str]:
-        """Return the Phase-1 projection group represented by this module."""
         return (self.block_id, self.projection_name)
 
 
 def load_phase1_sensitivity_lookup(
     phase1_results_path: str | Path,
 ) -> dict[tuple[str, str], float]:
-    """Load Phase 1 sensitivities keyed by canonical block/projection group."""
+    """Load strict total-DeltaPPL sensitivity scores from Phase 1."""
+
     path = Path(phase1_results_path).expanduser().resolve()
     with path.open("r", encoding="utf-8") as file:
         loaded = json.load(file)
 
     results = loaded.get("results", {})
-    projections = results.get("projections", [])
+    projections = results.get("projections", []) if isinstance(results, Mapping) else []
     if not isinstance(projections, list):
-        raise ValueError("Phase 1 results JSON must contain results.projections list.")
+        raise ValueError("Phase 1 JSON must contain results.projections as a list.")
 
     lookup: dict[tuple[str, str], float] = {}
-    for row in projections:
+    for index, row in enumerate(projections):
         if not isinstance(row, Mapping):
-            continue
-
+            raise TypeError(f"Phase-1 projection row {index} is not a mapping.")
         block_id = str(row.get("block_id", "")).strip()
         projection_name = str(row.get("proj_name", "")).strip()
-        if not block_id or not projection_name:
-            continue
-
         if projection_name == "lm_head":
-            block_id = "head"
+            continue
+        if not block_id or not projection_name:
+            raise ValueError(f"Phase-1 projection row {index} lacks identifiers.")
 
-        lookup[(block_id, projection_name)] = float(
-            row.get("sensitivity_mean", 0.0)
-        )
+        if "sensitivity_score_for_mapping" not in row:
+            raise KeyError(
+                f"{block_id}/{projection_name} lacks "
+                "sensitivity_score_for_mapping. Rerun the updated Phase 1."
+            )
+        unit = str(row.get("sensitivity_score_unit", ""))
+        if unit != "delta_ppl_total":
+            raise ValueError(
+                f"{block_id}/{projection_name} has unsupported sensitivity "
+                f"unit {unit!r}; expected 'delta_ppl_total'."
+            )
+        score = float(row["sensitivity_score_for_mapping"])
+        if not (-float("inf") < score < float("inf")):
+            raise ValueError(f"Non-finite sensitivity for {block_id}/{projection_name}.")
+        key = (block_id, projection_name)
+        if key in lookup:
+            raise ValueError(f"Duplicate Phase-1 sensitivity for {key}.")
+        lookup[key] = score
 
-    if not lookup:
-        raise ValueError("No Phase 1 sensitivity rows were loaded.")
+    expected = {
+        (f"block_{block}", projection)
+        for block in range(12)
+        for projection in PROJECTION_EXECUTION_ORDER
+    }
+    missing = expected - set(lookup)
+    if missing:
+        raise ValueError(f"Missing Phase-1 sensitivity rows: {sorted(missing)}")
     return lookup
 
 
 def projection_group_id(block_id: str, projection_name: str) -> str:
-    """Return the canonical logical projection identifier."""
     return f"{block_id}/{projection_name}"
 
 
 def projection_execution_index(block_id: str, projection_name: str) -> int:
-    """Return the simulator-module execution index used by baseline policies."""
-    if block_id == "embedding":
-        try:
-            return -100 + EMBEDDING_EXECUTION_ORDER.index(projection_name)
-        except ValueError:
-            return -1
-
-    if block_id == "head":
-        try:
-            projection_index = PROJECTION_EXECUTION_ORDER.index(projection_name)
-        except ValueError:
-            projection_index = 99
-        return 10_000 * 100 + projection_index
-
-    if not block_id.startswith("block_"):
-        return 0
-
     block_index = int(block_id.removeprefix("block_"))
-    try:
-        projection_index = PROJECTION_EXECUTION_ORDER.index(projection_name)
-    except ValueError:
-        projection_index = 99
-    return block_index * 100 + projection_index
+    return block_index * 100 + PROJECTION_EXECUTION_ORDER.index(projection_name)
 
 
 def module_projection_metadata(
     module_name: str,
     sensitivity_lookup: Mapping[tuple[str, str], float],
     *,
-    include_lm_head: bool,
+    include_lm_head: bool = False,
+    num_hidden_layers: int = 12,
 ) -> tuple[str, str, float]:
-    """Map a 3D-CIM module name to its canonical Phase 1 projection group."""
-    if "token_embedding" in module_name:
-        return "embedding", "token_embedding", 0.0
+    """Map one IBM simulator module to the true GPT-2 projection group."""
 
-    if "pos_embedding" in module_name:
-        return "embedding", "pos_embedding", 0.0
-
+    if "token_embedding" in module_name or "pos_embedding" in module_name:
+        if include_lm_head:
+            raise ValueError("Embeddings are digital and cannot be analog projections.")
+        return "digital", "embedding", 0.0
     if module_name.endswith("lm_head"):
-        sensitivity = (
-            sensitivity_lookup.get(("head", "lm_head"), 0.0)
-            if include_lm_head
-            else 0.0
-        )
-        return "head", "lm_head", float(sensitivity)
+        if include_lm_head:
+            raise ValueError(
+                "This unified pipeline keeps lm_head digital. Set include_lm_head=false."
+            )
+        return "digital", "lm_head", 0.0
 
-    block_match = re.search(r"layers\.(\d+)", module_name)
-    if block_match is None:
-        raise ValueError(f"Cannot determine block index from module name: {module_name}")
-    block_id = f"block_{int(block_match.group(1))}"
+    match = re.search(r"layers\.(\d+)", module_name)
+    if match is None:
+        raise ValueError(f"Cannot determine simulator layer from {module_name!r}.")
+    sim_layer = int(match.group(1))
 
-    if any(
-        tag in module_name
-        for tag in (
-            "q_proj_in",
-            "k_proj_in",
-            "v_proj_in",
-            "q_proj_out",
-            "k_proj_out",
-            "v_proj_out",
-        )
-    ):
-        projection_name = "attn.c_attn"
+    if any(tag in module_name for tag in ("q_proj_in", "k_proj_in", "v_proj_in")):
+        if sim_layer != 0:
+            raise ValueError(f"Unexpected *_proj_in outside layer 0: {module_name}")
+        target_block, projection_name = 0, "attn.c_attn"
+    elif any(tag in module_name for tag in ("q_proj_out", "k_proj_out", "v_proj_out")):
+        target_block, projection_name = sim_layer + 1, "attn.c_attn"
     elif "out_proj" in module_name:
-        projection_name = "attn.c_proj"
+        target_block, projection_name = sim_layer, "attn.c_proj"
     elif "ffn1" in module_name:
-        projection_name = "mlp.c_fc"
+        target_block, projection_name = sim_layer, "mlp.c_fc"
     elif "ffn2" in module_name:
-        projection_name = "mlp.c_proj"
+        target_block, projection_name = sim_layer, "mlp.c_proj"
     else:
+        raise ValueError(f"Unsupported simulator module: {module_name!r}")
+
+    if not 0 <= target_block < num_hidden_layers:
         raise ValueError(
-            f"Unsupported module name for projection metadata: {module_name}"
+            f"{module_name!r} resolves to invalid GPT-2 block {target_block}."
         )
+    block_id = f"block_{target_block}"
+    key = (block_id, projection_name)
+    if key not in sensitivity_lookup:
+        raise KeyError(f"Missing Phase-1 sensitivity for {key}.")
+    return block_id, projection_name, float(sensitivity_lookup[key])
 
-    sensitivity = sensitivity_lookup.get((block_id, projection_name), 0.0)
-    return block_id, projection_name, float(sensitivity)
 
+def iter_mappable_modules(
+    model: Any,
+    *,
+    include_embeddings: bool = False,
+    include_lm_head: bool = False,
+) -> list[tuple[str, Any]]:
+    """Return analog transformer projections only by default."""
 
-def iter_mappable_modules(model: Any) -> list[tuple[str, Any]]:
-    """Return 3D-CIM Linear and Embedding modules in model traversal order."""
     modules: list[tuple[str, Any]] = []
     for name, module in model.named_modules():
-        if type(module).__name__ in MAPPABLE_MODULE_TYPES:
+        type_name = type(module).__name__
+        if type_name == "Embedding":
+            if include_embeddings:
+                modules.append((name, module))
+            continue
+        if type_name != "Linear":
+            continue
+        if name.endswith("lm_head") and not include_lm_head:
+            continue
+        if any(
+            tag in name
+            for tag in (
+                "q_proj_in", "k_proj_in", "v_proj_in",
+                "q_proj_out", "k_proj_out", "v_proj_out",
+                "out_proj", "ffn1", "ffn2",
+            )
+        ):
             modules.append((name, module))
     return modules
 
@@ -204,39 +203,46 @@ def build_mapped_module_specs(
     *,
     sensitivity_lookup: Mapping[tuple[str, str], float],
     include_lm_head: bool,
+    reference_noise_std: float,
+    num_hidden_layers: int = 12,
 ) -> dict[str, MappedModuleSpec]:
-    """Build canonical metadata for the actual 3D-CIM model modules."""
-    specs: dict[str, MappedModuleSpec] = {}
+    if reference_noise_std <= 0.0:
+        raise ValueError("reference_noise_std must be positive.")
 
+    specs: dict[str, MappedModuleSpec] = {}
     for module_name, module in modules:
         block_id, projection_name, sensitivity = module_projection_metadata(
             module_name,
             sensitivity_lookup,
             include_lm_head=include_lm_head,
+            num_hidden_layers=num_hidden_layers,
         )
-        out_features = int(module.weight.shape[1])
+        if block_id == "digital":
+            continue
+        # IBM Linear weight orientation is [input_features, output_features].
         in_features = int(module.weight.shape[0])
-        projection_id = projection_group_id(block_id, projection_name)
-
+        out_features = int(module.weight.shape[1])
         specs[module_name] = MappedModuleSpec(
             module_name=module_name,
             block_id=block_id,
             projection_name=projection_name,
-            projection_id=projection_id,
+            projection_id=projection_group_id(block_id, projection_name),
             execution_index=projection_execution_index(block_id, projection_name),
             out_features=out_features,
             in_features=in_features,
             num_weights=out_features * in_features,
             sensitivity_score=sensitivity,
+            sensitivity_score_unit="delta_ppl_total",
+            sensitivity_reference_noise_std=float(reference_noise_std),
         )
-
+    if not specs:
+        raise ValueError("No analog transformer projection specs were built.")
     return specs
 
 
 def build_group_total_weights(
     mapped_specs: Sequence[MappedModuleSpec],
 ) -> dict[tuple[str, str], int]:
-    """Aggregate physical module weights by logical Phase 1 projection group."""
     totals: dict[tuple[str, str], int] = defaultdict(int)
     for spec in mapped_specs:
         totals[spec.group_key] += spec.num_weights
@@ -251,38 +257,34 @@ def order_modules_for_policy(
     policy_name: str,
     seed: int,
 ) -> list[tuple[str, Any]]:
-    """Order 3D-CIM modules exactly as required by a static baseline policy."""
     if policy_name == "random":
         rng = random.Random(seed)
-        shuffled = list(modules)
-        rng.shuffle(shuffled)
-        return shuffled
-
+        result = list(modules)
+        rng.shuffle(result)
+        return result
     if policy_name == "static_sensitivity":
-        decorated = []
-        for index, (name, module) in enumerate(modules):
-            spec = specs_by_name[name]
-            group_total = group_total_weights.get(spec.group_key, spec.num_weights)
-            module_fraction = spec.num_weights / group_total if group_total > 0 else 0.0
-            module_importance = spec.sensitivity_score * module_fraction
-            decorated.append(
-                (-module_importance, spec.execution_index, index, name, module)
-            )
-        decorated.sort()
-        return [(name, module) for _, _, _, name, module in decorated]
-
-    return modules
+        return sorted(
+            modules,
+            key=lambda item: (
+                -(
+                    specs_by_name[item[0]].sensitivity_score
+                    * specs_by_name[item[0]].num_weights
+                    / group_total_weights[specs_by_name[item[0]].group_key]
+                ),
+                specs_by_name[item[0]].execution_index,
+                item[0],
+            ),
+        )
+    return list(modules)
 
 
 def mapped_module_specs_to_rows(
     mapped_specs: Sequence[MappedModuleSpec],
 ) -> list[dict[str, Any]]:
-    """Convert simulator-module specs into the existing Phase 3 catalog CSV rows."""
-    group_total_weights = build_group_total_weights(mapped_specs)
+    group_totals = build_group_total_weights(mapped_specs)
     rows: list[dict[str, Any]] = []
-
     for spec in sorted(mapped_specs, key=lambda item: item.module_name):
-        group_total = group_total_weights[spec.group_key]
+        group_total = group_totals[spec.group_key]
         rows.append(
             {
                 "module_name": spec.module_name,
@@ -294,18 +296,15 @@ def mapped_module_specs_to_rows(
                 "in_features": spec.in_features,
                 "num_weights": spec.num_weights,
                 "group_total_weights": group_total,
-                "module_weight_fraction": (
-                    spec.num_weights / group_total
-                    if group_total > 0
-                    else 0.0
-                ),
+                "module_weight_fraction": spec.num_weights / group_total,
                 "sensitivity_score": spec.sensitivity_score,
+                "sensitivity_score_unit": spec.sensitivity_score_unit,
+                "sensitivity_reference_noise_std": (
+                    spec.sensitivity_reference_noise_std
+                ),
                 "module_importance": (
                     spec.sensitivity_score * spec.num_weights / group_total
-                    if group_total > 0
-                    else 0.0
                 ),
             }
         )
-
     return rows

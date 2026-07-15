@@ -2,7 +2,12 @@
 """Run GPT-2 AIHWKit projection-sensitivity profiling.
 
 The runner builds fixed-length WikiText batches, executes the AIHWKit profiler,
-and saves a compact JSON profile for Phase 2/3 mapping experiments.
+and saves:
+
+* backward-compatible projection sensitivity fields;
+* clean digital and deterministic analog-reference quality;
+* total DeltaPPL-based mapping sensitivity;
+* per-projection empirical programming-noise calibration for Phase 4.
 """
 
 from __future__ import annotations
@@ -116,7 +121,9 @@ def build_batches(
         text = sample.get("text", "")
         if not isinstance(text, str) or not text.strip():
             continue
-        token_ids.extend(tokenizer.encode(text + separator, add_special_tokens=False))
+        token_ids.extend(
+            tokenizer.encode(text + separator, add_special_tokens=False)
+        )
         if max_tokens is not None and len(token_ids) >= max_tokens:
             token_ids = token_ids[:max_tokens]
             break
@@ -180,12 +187,34 @@ def build_batches(
 
 
 def aggregate(results: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Package profiler outputs in the JSON structure used downstream."""
+    """Package profiler outputs for Phase 3, Phase 4, and analysis tools."""
     if not results:
         raise ValueError("The profiler returned no projection results.")
+
+    first = results[0]
+    calibrations = []
+    for result in results:
+        calibration = result.get("noise_calibration")
+        if not isinstance(calibration, dict):
+            raise ValueError(
+                f"Projection {result.get('projection_label', '<unknown>')} "
+                "does not contain a noise_calibration record."
+            )
+        calibrations.append(dict(calibration))
+
     return {
-        "digital_perplexity": float(results[0]["ppl_clean"]),
+        # Backward-compatible keys used by existing analysis code.
+        "digital_perplexity": float(first["ppl_clean"]),
+        "digital_nll": float(first["nll_clean"]),
         "projections": [dict(result) for result in results],
+        # Explicit baseline and Phase-4 bridge records.
+        "baseline": {
+            "clean_nll": float(first["nll_clean"]),
+            "clean_ppl": float(first["ppl_clean"]),
+        },
+        "projection_noise_calibration": calibrations,
+        "mapping_sensitivity_field": "sensitivity_score_for_mapping",
+        "mapping_sensitivity_unit": "delta_ppl_total",
     }
 
 
@@ -210,19 +239,34 @@ def save_results(
     results: Mapping[str, Any],
 ) -> Path:
     """Write the sensitivity profile JSON."""
-    experiment_cfg = config["experiment"]
-    save_dir = Path(experiment_cfg["save_dir"])
+    experiment_cfg = config.get("experiment", {}) or {}
+    phase1_cfg = config.get("phase1", {}) or {}
+    if not isinstance(experiment_cfg, Mapping) or not isinstance(phase1_cfg, Mapping):
+        raise ValueError("experiment and phase1 sections must be mappings.")
+    save_dir = Path(phase1_cfg.get("output_root", "data/results/phase1_sensitivity"))
     if not save_dir.is_absolute():
         save_dir = REPO_ROOT / save_dir
     save_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    prefix = str(experiment_cfg["results_filename_prefix"])
+    prefix = str(phase1_cfg.get("results_filename_prefix", "gpt2_aihwkit_sensitivity"))
     output_path = save_dir / f"{prefix}_{timestamp}.json"
+
+    baseline = results.get("baseline")
+    calibrations = results.get("projection_noise_calibration")
+    if not isinstance(baseline, Mapping):
+        raise ValueError("Aggregated results are missing the baseline record.")
+    if not isinstance(calibrations, list):
+        raise ValueError(
+            "Aggregated results are missing projection_noise_calibration."
+        )
 
     payload = {
         "metadata": {
-            "paper": "Heterogeneous Mapping for Analog In-Memory Computing Accelerators: A Unified Workflow",
+            "paper": (
+                "Heterogeneous Mapping for Analog In-Memory Computing "
+                "Accelerators: A Unified Workflow"
+            ),
             "created_at_utc": datetime.now(timezone.utc).isoformat(),
             "software_versions": package_versions(),
             "model": {
@@ -236,6 +280,12 @@ def save_results(
             "analog_configuration": profiler.analog_configuration(),
         },
         "requested_config": dict(config),
+        # Top-level records are consumed directly by Phase 4.
+        "baseline": dict(baseline),
+        "projection_noise_calibration": [
+            dict(record) for record in calibrations
+        ],
+        # Full backward-compatible result package.
         "results": dict(results),
     }
 
@@ -246,9 +296,16 @@ def save_results(
 
 def run_phase1_analysis(results_file: Path) -> None:
     """Run analyze_phase1.py for the newly created profiling result."""
-    analyze_script = REPO_ROOT / "experiments" / "phase1_sensitivity" / "analyze_phase1.py"
+    analyze_script = (
+        REPO_ROOT
+        / "experiments"
+        / "phase1_sensitivity"
+        / "analyze_phase1.py"
+    )
     if not analyze_script.is_file():
-        raise FileNotFoundError(f"Phase 1 analyzer script not found: {analyze_script}")
+        raise FileNotFoundError(
+            f"Phase 1 analyzer script not found: {analyze_script}"
+        )
 
     command = [
         sys.executable,
@@ -295,11 +352,18 @@ def main(config_path: Path) -> Path:
     )
 
     print("\nAIHWKIT PROFILING COMPLETE")
+    print(f"Digital FP32 NLL: {results['digital_nll']:.8f}")
     print(f"Digital FP32 perplexity: {results['digital_perplexity']:.6f}")
     print(f"Profiled projections: {len(results['projections'])}")
+    print(
+        "Phase-4 calibration records: "
+        f"{len(results['projection_noise_calibration'])}"
+    )
     print(f"Results saved to: {output_path}")
-    print("\nRunning Phase 1 analysis...")
-    run_phase1_analysis(output_path)
+    phase1_cfg = config.get("phase1", {}) or {}
+    if bool(phase1_cfg.get("run_analysis", False)):
+        print("\nRunning Phase 1 analysis...")
+        run_phase1_analysis(output_path)
     return output_path
 
 
@@ -308,7 +372,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config",
         type=Path,
-        default=REPO_ROOT / "configs" / "phase1_sensitivity" / "lammie_2026.yaml",
+        default=(
+            REPO_ROOT
+            / "configs"
+            / "full_pipeline"
+            / "gpt2_3dcim.yaml"
+        ),
     )
     args = parser.parse_args()
     main(args.config)

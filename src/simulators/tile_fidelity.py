@@ -1346,6 +1346,10 @@ class TileFidelityModel:
         metadata = {
             "seed": self.seed,
             "hardware": self.hardware_config.to_dict(),
+            "noise_unit": "pcmlike_prog_noise_scale_equivalent",
+            "reference_programming_noise_scale": (
+                self.fidelity_config.reference_noise_std
+            ),
             "fidelity_model": self.fidelity_config.to_dict(),
             "class_code_mapping": {
                 str(code): fidelity_class.value
