@@ -63,15 +63,6 @@ The main result is the paired comparison between blind/hardware-only placement
 and sensitivity-aware placement under the same hardware snapshot and random
 field. Phase-1 and Phase-4 absolute perplexities are not expected to match.
 
-## Installation
-
-Copy this overlay into the repository root while preserving directory paths.
-It replaces the corresponding Phase 1–4 files and adds:
-
-```text
-src/evaluation/aihwkit_gpt2.py
-```
-
 ## Run all four phases
 
 ```bash
@@ -92,10 +83,6 @@ All settings are in:
 configs/full_pipeline/gpt2_3dcim.yaml
 ```
 
-For a smoke test, reduce `dataset.max_tokens`, use 512-token windows, and set
-both Phase-1 seeds and Phase-4 realizations to 1. For final results, restore a
-larger evaluation set and multiple seeds.
-
 ## Phase-4 outputs
 
 Key files include:
@@ -114,20 +101,6 @@ metadata.json
 
 Positive paired differences mean the second policy in the pair has lower
 DeltaNLL/DeltaPPL and therefore preserves quality better.
-
-## Built-in contract checks
-
-The workflow checks:
-
-- 48 Phase-1 total-DeltaPPL sensitivity rows;
-- 48 empirical noise-calibration rows;
-- a `[T, 72]` Phase-2 trace in PCMLike programming-scale-equivalent units;
-- 480 unique projection tiers for every Phase-3 policy;
-- identical logical shard sets across policies;
-- identical all-analog reference weights in the two Phase-4 models;
-- identical NLL for independently converted all-analog reference models;
-- policy invariance when all physical tiles have uniform noise;
-- exact logical-weight restoration after every Phase-4 evaluation.
 
 ## Important modeling boundary
 
