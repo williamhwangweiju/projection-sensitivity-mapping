@@ -1,0 +1,152 @@
+{
+  "artifacts": {
+    "effective_config": "config.yaml",
+    "metadata": "metadata.json",
+    "tile_summary": "tile_summary.csv",
+    "timestep_summary": "timestep_summary.csv",
+    "trace": "trace.npz"
+  },
+  "config_path": "/Users/hwangweiju/ML_HW_Reasearch.worktrees/agents-phase-4-implementation/configs/full_pipeline/gpt2_3dcim.yaml",
+  "experiment_name": "mixed_72x8",
+  "generated_at_utc": "2026-07-14T15:52:55.660275+00:00",
+  "model_metadata": {
+    "class_code_mapping": {
+      "0": "high",
+      "1": "medium",
+      "2": "low"
+    },
+    "fidelity_model": {
+      "degradation": {
+        "gradual_drift": {
+          "enabled": true,
+          "total_increase_range": [
+            0.05,
+            0.25
+          ]
+        },
+        "localized_fault": {
+          "candidate_classes": [
+            "high",
+            "medium",
+            "low"
+          ],
+          "enabled": true,
+          "make_unavailable": false,
+          "noise_increase_range": [
+            0.2,
+            0.6
+          ],
+          "num_affected_tiles": 6,
+          "onset_timestep_range": [
+            40,
+            80
+          ],
+          "permanent": true
+        },
+        "thermal_variation": {
+          "correlation": 0.94,
+          "enabled": true,
+          "standard_deviation_fraction": 0.05
+        }
+      },
+      "fidelity_classes": {
+        "high": {
+          "fraction": 0.25,
+          "noise_multiplier_range": [
+            0.55,
+            0.8
+          ]
+        },
+        "low": {
+          "fraction": 0.25,
+          "noise_multiplier_range": [
+            1.3,
+            1.7
+          ]
+        },
+        "medium": {
+          "fraction": 0.5,
+          "noise_multiplier_range": [
+            0.9,
+            1.1
+          ]
+        }
+      },
+      "max_noise_std": 0.06,
+      "min_noise_std": 0.005,
+      "num_timesteps": 120,
+      "reference_noise_std": 0.023
+    },
+    "hardware": {
+      "num_thermal_zones": 8,
+      "num_tiles": 72,
+      "tier_shape": {
+        "cols": 512,
+        "rows": 512
+      },
+      "tiers_per_tile": 8
+    },
+    "noise_unit": "pcmlike_prog_noise_scale_equivalent",
+    "reference_programming_noise_scale": 0.023,
+    "seed": 42,
+    "selected_fault_tile_ids": [
+      12,
+      25,
+      41,
+      50,
+      51,
+      62
+    ]
+  },
+  "output_directory": "/Users/hwangweiju/ML_HW_Reasearch.worktrees/agents-phase-4-implementation/data/results/phase2_fidelity/fidelity_traces/mixed_72x8/seed_42",
+  "phase": "phase2_fidelity",
+  "seed": 42,
+  "summary": {
+    "final_available_tile_count": 72,
+    "final_faulted_tile_count": 6,
+    "final_max_noise_std": 0.04982430566354304,
+    "final_mean_fidelity_score": 0.42573990820475544,
+    "final_mean_noise_std": 0.028389015907805935,
+    "final_min_noise_std": 0.013407425954045616,
+    "final_unavailable_tile_count": 0,
+    "initial_max_noise_std": 0.03881642267159906,
+    "initial_mean_fidelity_score": 0.5032314686421215,
+    "initial_mean_noise_std": 0.02392740225089836,
+    "initial_min_noise_std": 0.012827202548765654,
+    "initial_to_final_rank_correlation": 0.9003472892147406,
+    "mean_noise_change_percent": 18.646460698591135,
+    "num_tiles": 72,
+    "num_timesteps": 120,
+    "scheduled_fault_count": 6,
+    "selected_fault_tile_ids": [
+      12,
+      25,
+      41,
+      50,
+      51,
+      62
+    ]
+  },
+  "trace_shapes": {
+    "available": [
+      120,
+      72
+    ],
+    "dynamic_fidelity_class": [
+      120,
+      72
+    ],
+    "faulted": [
+      120,
+      72
+    ],
+    "fidelity_score": [
+      120,
+      72
+    ],
+    "noise_std": [
+      120,
+      72
+    ]
+  }
+}

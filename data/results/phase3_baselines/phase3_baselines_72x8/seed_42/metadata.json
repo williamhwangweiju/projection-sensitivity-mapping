@@ -1,0 +1,46 @@
+{
+  "artifacts": {
+    "hardware_only": "placement_hardware_only.csv",
+    "policy_summary": "policy_summary.csv",
+    "projection_catalog": "projection_catalog.csv",
+    "projection_shards": "projection_shards.csv",
+    "random": "placement_random.csv",
+    "sequential": "placement_sequential.csv",
+    "static_sensitivity": "placement_static_sensitivity.csv",
+    "timestep_metrics": "timestep_metrics.csv"
+  },
+  "experiment_name": "phase3_baselines_72x8",
+  "generated_at_utc": "2026-07-14T16:26:06.475815+00:00",
+  "hardware": {
+    "dram_active_power": 0.2467,
+    "dram_bandwidth": 5.332,
+    "dram_inactive_power": 0.1297,
+    "kv_caching": false,
+    "tier_shape": [
+      512,
+      512
+    ],
+    "tiers": 8,
+    "tiles": 72
+  },
+  "inputs": {
+    "phase1_results": "/Users/hwangweiju/ML_HW_Reasearch.worktrees/agents-phase-4-implementation/data/results/phase1_sensitivity/gpt2_aihwkit_calibrated_20260714_115250.json",
+    "phase2_metadata": "/Users/hwangweiju/ML_HW_Reasearch.worktrees/agents-phase-4-implementation/data/results/phase2_fidelity/fidelity_traces/mixed_72x8/seed_42/metadata.json",
+    "phase2_trace": "/Users/hwangweiju/ML_HW_Reasearch.worktrees/agents-phase-4-implementation/data/results/phase2_fidelity/fidelity_traces/mixed_72x8/seed_42/trace.npz"
+  },
+  "phase": "phase3_baselines",
+  "seed": 42,
+  "summary": {
+    "embeddings_and_lm_head": "digital",
+    "include_lm_head_in_quality_objective": false,
+    "initial_available_tiles": 72,
+    "num_policies": 4,
+    "num_tiles": 72,
+    "num_timesteps": 120,
+    "proxy_name": "sensitivity_weighted_variance_proxy",
+    "proxy_noise_scaling": "variance_ratio_squared",
+    "reference_noise_std": 0.023,
+    "sensitivity_score_unit": "delta_ppl_total",
+    "tiers_per_tile": 8
+  }
+}

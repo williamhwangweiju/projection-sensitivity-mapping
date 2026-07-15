@@ -178,15 +178,11 @@ def get_experiment_name(
 ) -> str:
     """Resolve a filesystem-safe experiment name."""
 
-    experiment_config = config.get("experiment", {})
+    phase2_config = config.get("phase2", {}) or {}
+    if not isinstance(phase2_config, Mapping):
+        raise ValueError("The phase2 section must be a mapping.")
 
-    if experiment_config is None:
-        experiment_config = {}
-
-    if not isinstance(experiment_config, Mapping):
-        raise ValueError("The experiment section must be a mapping.")
-
-    raw_name = experiment_config.get(
+    raw_name = phase2_config.get(
         "name",
         config_path.stem,
     )
@@ -226,15 +222,11 @@ def resolve_output_directory(
     if cli_output_dir is not None:
         return cli_output_dir.expanduser().resolve()
 
-    experiment_config = config.get("experiment", {})
+    phase2_config = config.get("phase2", {}) or {}
+    if not isinstance(phase2_config, Mapping):
+        raise ValueError("The phase2 section must be a mapping.")
 
-    if experiment_config is None:
-        experiment_config = {}
-
-    if not isinstance(experiment_config, Mapping):
-        raise ValueError("The experiment section must be a mapping.")
-
-    raw_output_root = experiment_config.get(
+    raw_output_root = phase2_config.get(
         "output_root",
         DEFAULT_OUTPUT_ROOT,
     )
@@ -315,6 +307,16 @@ def build_effective_config(
     experiment_config["resolved_output_directory"] = str(
         output_directory
     )
+
+    phase2_config = effective_config.get("phase2")
+    if phase2_config is None:
+        phase2_config = {}
+        effective_config["phase2"] = phase2_config
+    if not isinstance(phase2_config, dict):
+        phase2_config = dict(phase2_config)
+        effective_config["phase2"] = phase2_config
+    phase2_config["name"] = experiment_name
+    phase2_config["resolved_output_directory"] = str(output_directory)
 
     return effective_config
 

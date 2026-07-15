@@ -1,4 +1,10 @@
-"""Crossbar sharding and 3D-CIM mapping-extraction utilities."""
+"""Crossbar sharding and authoritative 3D-CIM mapping extraction.
+
+IBM 3D-CIM linear weights use [input_features, output_features].  The mapping
+row index therefore identifies an input-dimension fragment and the mapping
+column index identifies an output-dimension fragment.  Phase 4 transposes
+these coordinates into GPT-2 canonical [output_features, input_features].
+"""
 
 from __future__ import annotations
 
@@ -14,7 +20,7 @@ from .projection_catalog import (
 
 @dataclass(frozen=True, slots=True)
 class ProjectionShard:
-    """One crossbar-compatible shard from a parent projection."""
+    """One crossbar-compatible shard from a logical projection group."""
 
     shard_id: str
     projection_id: str
@@ -22,9 +28,17 @@ class ProjectionShard:
     projection_name: str
     execution_index: int
 
+    # IBM mapping-grid indices: row=input dimension, col=output dimension.
     row_shard_index: int
     col_shard_index: int
 
+    sim_input_start: int
+    sim_input_end: int
+    sim_output_start: int
+    sim_output_end: int
+
+    # Kept for compatibility with earlier Phase-3 consumers.  These are exact
+    # simulator-coordinate ranges, not canonical GPT-2 coordinates.
     out_start: int
     out_end: int
     in_start: int
@@ -36,11 +50,13 @@ class ProjectionShard:
     weights_in_projection: int
     shard_weight: float
     sensitivity_score: float
+    sensitivity_score_unit: str
+    sensitivity_reference_noise_std: float
 
 
 @dataclass(frozen=True, slots=True)
 class MappedShardRecord:
-    """One ProjectionShard plus its authoritative 3D-CIM mapping metadata."""
+    """One ProjectionShard plus authoritative 3D-CIM mapping metadata."""
 
     module_name: str
     shard: ProjectionShard
@@ -58,29 +74,35 @@ def extract_shards_from_3dcim_mapping(
     *,
     model: Any,
     mapped_specs: Sequence[MappedModuleSpec],
+    tier_rows: int,
+    tier_cols: int,
 ) -> list[MappedShardRecord]:
-    """Canonicalize the actual 3D-CIM module mappings without remapping them.
+    """Extract exact shard extents from already-mapped 3D-CIM modules."""
 
-    The source simulator currently exposes fragment indices and used dimensions,
-    but not exact source-tensor coordinate ranges. To preserve existing Phase 3
-    behavior, out_start/out_end and in_start/in_end retain their prior fragment-
-    identifier semantics. Phase 4 can later replace this single conversion point
-    once exact tensor-coordinate reconstruction has been validated.
-    """
+    if tier_rows <= 0 or tier_cols <= 0:
+        raise ValueError("tier_rows and tier_cols must be positive.")
+
     specs_by_name: Mapping[str, MappedModuleSpec] = {
-        spec.module_name: spec
-        for spec in mapped_specs
+        spec.module_name: spec for spec in mapped_specs
     }
     group_total_weights = build_group_total_weights(mapped_specs)
 
     records: list[MappedShardRecord] = []
-    for module_name, module in iter_mappable_modules(model):
+    for module_name, module in iter_mappable_modules(
+        model,
+        include_embeddings=False,
+        include_lm_head=False,
+    ):
+        if module_name not in specs_by_name:
+            continue
         spec = specs_by_name[module_name]
         mapping = getattr(module, "mapping", None)
         if mapping is None:
             raise ValueError(f"Module {module_name} was not mapped.")
 
         group_total = group_total_weights[spec.group_key]
+        if group_total <= 0:
+            raise ValueError(f"Non-positive group total for {spec.group_key}.")
 
         for row_idx, row in enumerate(mapping):
             for col_idx, mapping_entry in enumerate(row):
@@ -89,10 +111,23 @@ def extract_shards_from_3dcim_mapping(
                 tier_id = int(tier_idx)
                 used_rows = int(used_rows)
                 used_cols = int(used_cols)
-                used_weights = used_rows * used_cols
+                if not 1 <= used_rows <= tier_rows:
+                    raise ValueError(
+                        f"{module_name}#r{row_idx}c{col_idx}: invalid used_rows="
+                        f"{used_rows} for tier_rows={tier_rows}."
+                    )
+                if not 1 <= used_cols <= tier_cols:
+                    raise ValueError(
+                        f"{module_name}#r{row_idx}c{col_idx}: invalid used_cols="
+                        f"{used_cols} for tier_cols={tier_cols}."
+                    )
 
+                sim_input_start = row_idx * tier_rows
+                sim_input_end = sim_input_start + used_rows
+                sim_output_start = col_idx * tier_cols
+                sim_output_end = sim_output_start + used_cols
+                used_weights = used_rows * used_cols
                 shard_id = f"{module_name}#r{row_idx}c{col_idx}"
-                shard_weight = used_weights / group_total if group_total > 0 else 0.0
 
                 shard = ProjectionShard(
                     shard_id=shard_id,
@@ -102,16 +137,24 @@ def extract_shards_from_3dcim_mapping(
                     execution_index=spec.execution_index,
                     row_shard_index=row_idx,
                     col_shard_index=col_idx,
-                    out_start=row_idx,
-                    out_end=row_idx + 1,
-                    in_start=col_idx,
-                    in_end=col_idx + 1,
-                    out_features=used_rows,
-                    in_features=used_cols,
+                    sim_input_start=sim_input_start,
+                    sim_input_end=sim_input_end,
+                    sim_output_start=sim_output_start,
+                    sim_output_end=sim_output_end,
+                    out_start=sim_output_start,
+                    out_end=sim_output_end,
+                    in_start=sim_input_start,
+                    in_end=sim_input_end,
+                    out_features=used_cols,
+                    in_features=used_rows,
                     weights_in_shard=used_weights,
                     weights_in_projection=group_total,
-                    shard_weight=shard_weight,
+                    shard_weight=used_weights / group_total,
                     sensitivity_score=spec.sensitivity_score,
+                    sensitivity_score_unit=spec.sensitivity_score_unit,
+                    sensitivity_reference_noise_std=(
+                        spec.sensitivity_reference_noise_std
+                    ),
                 )
 
                 records.append(
@@ -129,6 +172,8 @@ def extract_shards_from_3dcim_mapping(
                     )
                 )
 
+    if not records:
+        raise ValueError("No transformer-projection shards were extracted.")
     return records
 
 
@@ -136,8 +181,11 @@ def mapped_shard_records_to_placement_rows(
     *,
     policy_name: str,
     records: Sequence[MappedShardRecord],
+    trace_seed: int,
+    placement_seed: int,
 ) -> list[dict[str, Any]]:
-    """Convert 3D-CIM mapped shards into the existing per-policy placement CSV."""
+    """Convert mapped shards into the per-policy CSV consumed by Phase 4."""
+
     rows: list[dict[str, Any]] = []
     for record in records:
         shard = record.shard
@@ -150,6 +198,12 @@ def mapped_shard_records_to_placement_rows(
                 "block_id": shard.block_id,
                 "projection_name": shard.projection_name,
                 "execution_index": shard.execution_index,
+                "row_shard_index": shard.row_shard_index,
+                "col_shard_index": shard.col_shard_index,
+                "sim_input_start": shard.sim_input_start,
+                "sim_input_end": shard.sim_input_end,
+                "sim_output_start": shard.sim_output_start,
+                "sim_output_end": shard.sim_output_end,
                 "tile_id": record.tile_id,
                 "tier_start": record.tier_start,
                 "tiers_used": record.tiers_used,
@@ -160,8 +214,16 @@ def mapped_shard_records_to_placement_rows(
                 "module_num_weights": record.module_num_weights,
                 "shard_weight": shard.shard_weight,
                 "sensitivity_score": shard.sensitivity_score,
-                "shard_importance": shard.shard_weight * shard.sensitivity_score,
+                "sensitivity_score_unit": shard.sensitivity_score_unit,
+                "sensitivity_reference_noise_std": (
+                    shard.sensitivity_reference_noise_std
+                ),
+                "shard_importance": (
+                    shard.shard_weight * shard.sensitivity_score
+                ),
                 "utilization": record.utilization,
+                "trace_seed": trace_seed,
+                "placement_seed": placement_seed,
             }
         )
     return rows

@@ -1,0 +1,170 @@
+# Unified configuration for Phases 1-4.
+# Primary hardware design: 72 physical 3D tiles x 8 tiers/tile,
+# one 512x512 analog crossbar per tier. Embeddings and lm_head stay digital.
+
+experiment:
+  seed: 42
+  placement_seed: 42
+
+model:
+  name: gpt2
+  device: cpu
+
+# Shared verbatim by Phase 1 and Phase 4.
+dataset:
+  name: Salesforce/wikitext
+  config: wikitext-103-raw-v1
+  split: test
+  sequence_length: 1024
+  stride: 1024
+  batch_size: 1
+  max_tokens: null
+  document_separator: "\n\n"
+  drop_incomplete_final_sequence: true
+
+hardware:
+  num_tiles: 72
+  tiers_per_tile: 8
+  tier_shape:
+    rows: 512
+    cols: 512
+  num_thermal_zones: 8
+
+# Phase 1: one projection analog at a time for total-DeltaPPL sensitivity,
+# plus empirical AIHWKit programming-noise calibration for Phase 4.
+phase1:
+  name: phase1_sensitivity
+  output_root: data/results/phase1_sensitivity
+  results_filename_prefix: gpt2_aihwkit_calibrated
+  run_analysis: true
+  results_path: null
+
+profiling:
+  include_lm_head: false
+  clip_sigma: 2.5
+  tile_size: 512
+  adc_dac_bits: 8
+  programming_noise_scale: 1.0
+  num_seeds: 5
+  seed_stride: 1
+  profile_blocks: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+  weight_scaling_omega: 1.0
+  weight_scaling_columnwise: false
+  sensitivity_field: sensitivity_mean
+  sensitivity_unit: delta_ppl_total
+
+# Phase 2 trace values are expressed in AIHWKit PCMLike
+# prog_noise_scale-equivalent units. Therefore 0.023 is the Phase-1 reference.
+phase2:
+  name: mixed_72x8
+  output_root: data/results/phase2_fidelity/fidelity_traces
+  trace_path: null
+  metadata_path: null
+
+fidelity_model:
+  num_timesteps: 120
+  reference_noise_std: 0.023
+  min_noise_std: 0.005
+  max_noise_std: 0.060
+  fidelity_classes:
+    high:
+      fraction: 0.25
+      noise_multiplier_range: [0.55, 0.80]
+    medium:
+      fraction: 0.50
+      noise_multiplier_range: [0.90, 1.10]
+    low:
+      fraction: 0.25
+      noise_multiplier_range: [1.30, 1.70]
+
+degradation:
+  gradual_drift:
+    enabled: true
+    total_increase_range: [0.05, 0.25]
+  thermal_variation:
+    enabled: true
+    correlation: 0.94
+    standard_deviation_fraction: 0.05
+  localized_fault:
+    enabled: true
+    num_affected_tiles: 6
+    onset_timestep_range: [40, 80]
+    noise_increase_range: [0.20, 0.60]
+    candidate_classes: [high, medium, low]
+    permanent: true
+    # Operational-degradation Phase 4 does not accept unavailable mapped tiles.
+    make_unavailable: false
+
+# Phase 3 IBM 3D-CIM placement. Only the 48 GPT-2 transformer projections
+# consume analog tiers: 480 occupied tiers out of 576 total.
+phase3:
+  name: phase3_baselines_72x8
+  output_root: data/results/phase3_baselines
+  results_dir: null
+  num_tiles: 72
+  tiers_per_tile: 8
+  tier_rows: 512
+  tier_cols: 512
+  reference_noise_std: 0.023
+  include_lm_head: false
+  embeddings_analog: false
+  kv_caching: false
+  run_performance_simulation: false
+  num_layers: 12
+  d_model: 768
+  nhead: 12
+  dim_feedforward: 3072
+  vocab_size: 50257
+  batch_size: 1
+  start_len: 1
+  target_len: 12
+  sensitivity_field: sensitivity_score_for_mapping
+  sensitivity_unit: delta_ppl_total
+  proxy_name: sensitivity_weighted_variance_proxy
+  placement_filenames:
+    random: placement_random.csv
+    sequential: placement_sequential.csv
+    hardware_only: placement_hardware_only.csv
+    static_sensitivity: placement_static_sensitivity.csv
+
+# Phase 4 calibrated, paired, tile-specific weight-noise evaluation.
+phase4:
+  name: phase4_quality_72x8
+  output_root: data/results/phase4_quality
+  aihwkit:
+    forward_backend: aihwkit
+    all_transformer_projections_analog: true
+    embeddings_analog: false
+    lm_head_analog: false
+    reference_mode: all_analog_without_tile_noise
+    tile_noise_application: materialized_weight_noise
+    noise_scale_source: phase1_calibration
+    internal_programming_noise: false
+    internal_read_noise: false
+    internal_drift: false
+    freeze_noise_during_dataset_pass: true
+    reference_nll_tolerance: 1.0e-6
+
+noise:
+  num_realizations: 5
+  realization_seed_stride: 1
+
+evaluation:
+  policies: [random, sequential, hardware_only, static_sensitivity]
+  # null selects initial, first-fault neighborhood, midpoint, and final.
+  timesteps: null
+  # Enable these only when needed; they require an additional all-analog
+  # reference forward for every policy/timestep/realization.
+  compute_kl: false
+  compute_agreement: false
+  strict_phase1_compatibility: true
+  unavailable_action: error
+  policy_pairs:
+    - [hardware_only, static_sensitivity]
+    - [random, static_sensitivity]
+    - [sequential, static_sensitivity]
+
+output:
+  save_assignment_csv: true
+  save_injection_records: true
+  save_checksums: true
