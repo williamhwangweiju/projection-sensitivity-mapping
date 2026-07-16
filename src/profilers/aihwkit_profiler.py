@@ -198,7 +198,9 @@ class AIHWKITSensitivityProfiler:
                 "noise_std_absolute",
             )
         }
-        sensitivity_value = float(fields[self.mapping_sensitivity_field]["mean"])
+        sensitivity_value = float(
+            fields[self.mapping_sensitivity_field.removesuffix("_mean")]["mean"]
+        )
         result = {
             "projection_id": handle.projection_id,
             "block_index": handle.block_index,
@@ -229,6 +231,13 @@ class AIHWKITSensitivityProfiler:
     def profile_all(self, batches: list[Batch]) -> dict[str, Any]:
         digital_nll, digital_ppl, token_count = evaluate_nll_ppl(
             self.model, batches, self.device
+        )
+        print(
+            "\n"
+            f"All-digital baseline NLL/PPL: "
+            f"{digital_nll:.8f} / {digital_ppl:.6f}\n"
+            f"Evaluation tokens: {token_count}\n",
+            flush=True,
         )
         projections: list[dict[str, Any]] = []
         handles = self._selected_handles()
