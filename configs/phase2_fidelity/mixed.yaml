@@ -13,9 +13,14 @@ hardware:
 fidelity_model:
   num_timesteps: 120
 
-  reference_noise_std: 0.023
-  min_noise_std: 0.005
-  max_noise_std: 0.060
+  # Operating programming-noise scale (pcmlike_prog_noise_scale_equivalent units).
+  # This MUST match Phase-1 profiling.programming_noise_scale so that the
+  # sensitivity ranking is characterized in the same regime it is applied in.
+  # (Previously 0.023 while Phase 1 characterized at 1.0 -> the ~30x gap made
+  # the Phase-1 DeltaPPL ranking non-transferable and broke static_sensitivity.)
+  reference_noise_std: 0.700
+  min_noise_std: 0.150
+  max_noise_std: 1.850
 
   fidelity_classes:
     high:

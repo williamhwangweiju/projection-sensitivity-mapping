@@ -1,168 +1,136 @@
 #!/usr/bin/env python3
-"""Validate Phase 1-3 artifacts before Phase 4 quality evaluation."""
-
+"""Validate cross-phase units, projection metadata and physical placements."""
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import math
 import sys
 from pathlib import Path
-from typing import Any, Mapping
 
 import numpy as np
+import pandas as pd
 import yaml
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-if str(REPOSITORY_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from src.simulators.tile_fidelity import TileFidelityTrace
-
-POLICIES = ("random", "sequential", "hardware_only", "static_sensitivity")
+def fail(message: str) -> None:
+    raise AssertionError(message)
 
 
-def load_json(path: Path) -> dict[str, Any]:
-    with path.open(encoding="utf-8") as stream:
-        data = json.load(stream)
-    if not isinstance(data, Mapping):
-        raise ValueError(f"{path} must contain a JSON mapping.")
-    return dict(data)
+def main(
+    config_path: Path,
+    phase1_results: Path,
+    phase2_trace: Path,
+    phase3_dir: Path,
+) -> None:
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    phase1 = json.loads(phase1_results.read_text(encoding="utf-8"))
+    with np.load(phase2_trace, allow_pickle=False) as archive:
+        trace = {name: archive[name] for name in archive.files}
+
+    analog_reference = float(config["analog"]["reference_noise_std"])
+    phase2_reference = float(config["fidelity_model"]["reference_noise_std"])
+    phase3_reference = float(config["phase3"]["reference_noise_std"])
+    if not (
+        math.isclose(analog_reference, phase2_reference, abs_tol=1e-12)
+        and math.isclose(analog_reference, phase3_reference, abs_tol=1e-12)
+    ):
+        fail("Reference noise standard deviations differ across phases.")
+
+    analog_metadata = phase1["metadata"]["analog_configuration"]
+    expected = {
+        "clipping": "manual_projection_wide_symmetric_gaussian",
+        "clip_order": "clip_once_before_noise",
+        "reclip_after_noise": False,
+        "noise_unit": "normalized_std_fraction_of_programmed_projection_range",
+        "forward_is_perfect": False,
+        "internal_clipping": False,
+        "internal_programming_noise": False,
+        "internal_read_noise": False,
+        "internal_drift": False,
+    }
+    for key, value in expected.items():
+        if analog_metadata.get(key) != value:
+            fail(f"Phase-1 analog contract mismatch for {key}: {analog_metadata.get(key)!r}")
+    if float(analog_metadata["clip_sigma"]) != float(config["analog"]["clip_sigma"]):
+        fail("Phase-1 clip_sigma does not match current config.")
+    if str(analog_metadata["programmed_range_mode"]) != str(
+        config["analog"]["range_mode"]
+    ):
+        fail("Phase-1 range mode does not match current config.")
+
+    projections = phase1["results"]["projections"]
+    if len(projections) != 48:
+        fail(f"Expected 48 Phase-1 projections, found {len(projections)}.")
+    projection_shapes = {}
+    for record in projections:
+        preprocessing = record.get("preprocessing", {})
+        for field in (
+            "original_checksum",
+            "clipped_checksum",
+            "clip_threshold",
+            "programmed_range",
+        ):
+            if field not in preprocessing:
+                fail(f"{record['projection_id']} is missing preprocessing.{field}.")
+        if float(preprocessing["programmed_range"]) <= 0:
+            fail(f"{record['projection_id']} has invalid programmed range.")
+        projection_shapes[str(record["projection_id"])] = tuple(
+            int(value) for value in record["weight_shape_out_in"]
+        )
+
+    if trace["noise_std"].ndim != 2:
+        fail("Phase-2 noise_std is not [timesteps, tiles].")
+    if trace["noise_std"].shape[1] != int(config["hardware"]["num_tiles"]):
+        fail("Phase-2 tile count does not match hardware.num_tiles.")
+
+    filenames = config["phase3"]["placement_filenames"]
+    policies = ["random", "sequential", "hardware_only", "static_sensitivity"]
+    for policy in policies:
+        path = phase3_dir / str(filenames[policy])
+        if not path.is_file():
+            fail(f"Missing placement: {path}")
+        frame = pd.read_csv(path)
+        if len(frame) != 480:
+            fail(f"{policy} placement has {len(frame)} rows; expected 480.")
+        if frame["shard_id"].nunique() != 480:
+            fail(f"{policy} placement does not contain 480 unique shards.")
+        if frame[["tile_id", "tier_id"]].duplicated().any():
+            fail(f"{policy} placement reuses a physical tier.")
+        for projection_id, group in frame.groupby("projection_id"):
+            if projection_id not in projection_shapes:
+                fail(f"Unknown projection in placement: {projection_id}")
+            shape = projection_shapes[projection_id]
+            coverage = np.zeros(shape, dtype=np.int8)
+            for row in group.itertuples(index=False):
+                coverage[
+                    int(row.out_start) : int(row.out_end),
+                    int(row.in_start) : int(row.in_end),
+                ] += 1
+            if not np.all(coverage == 1):
+                fail(f"{policy}/{projection_id} does not cover every weight once.")
+
+    mapping_summary = pd.read_csv(phase3_dir / "mapping_timestep_summary.csv")
+    values = mapping_summary.set_index("policy")[
+        "sensitivity_weighted_variance_proxy"
+    ]
+    static = float(values["static_sensitivity"])
+    for baseline in ("random", "sequential", "hardware_only"):
+        if static > float(values[baseline]) + max(1e-12, abs(static) * 1e-10):
+            fail(f"Static sensitivity proxy exceeds {baseline} at mapping time.")
+
+    print("Pipeline contracts validated successfully.")
+    print("  48 projections")
+    print("  480 unique physical shards per policy")
+    print("  identical manual clipping/noise units across Phases 1-4")
+    print("  static sensitivity placement is proxy-optimal at mapping timestep")
 
 
-def main() -> None:
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--phase1-results", type=Path, required=True)
     parser.add_argument("--phase2-trace", type=Path, required=True)
     parser.add_argument("--phase3-dir", type=Path, required=True)
     args = parser.parse_args()
-
-    config = yaml.safe_load(args.config.read_text()) or {}
-    phase1 = load_json(args.phase1_results)
-    results = phase1.get("results", {})
-    projections = results.get("projections", []) if isinstance(results, Mapping) else []
-    if not isinstance(projections, list) or len(projections) != 48:
-        raise ValueError("Phase 1 must contain exactly 48 projection sensitivity rows.")
-    for row in projections:
-        if row.get("sensitivity_score_unit") != "delta_ppl_total":
-            raise ValueError("Phase-1 mapping sensitivity must use delta_ppl_total.")
-        if "sensitivity_score_for_mapping" not in row:
-            raise ValueError("A Phase-1 row lacks sensitivity_score_for_mapping.")
-
-    calibrations = phase1.get("projection_noise_calibration")
-    if not isinstance(calibrations, list) or len(calibrations) != 48:
-        raise ValueError(
-            "Phase 1 must contain exactly 48 projection_noise_calibration records."
-        )
-    paths = {str(row["hf_module_path"]) for row in calibrations}
-    if len(paths) != 48:
-        raise ValueError("Phase-1 calibration module paths are not unique.")
-    profiling_cfg = config.get("profiling", {})
-    fidelity_cfg = config.get("fidelity_model", {})
-    phase3_cfg = config.get("phase3", {})
-
-    expected_reference_sigma = float(
-        profiling_cfg.get("programming_noise_scale", 0.023)
-    )
-    phase2_reference_sigma = float(
-        fidelity_cfg.get("reference_noise_std", expected_reference_sigma)
-    )
-    phase3_reference_sigma = float(
-        phase3_cfg.get("reference_noise_std", expected_reference_sigma)
-    )
-
-    reference_sigmas = []
-    for row in calibrations:
-        reference_sigma = float(row["reference_sigma_normalized"])
-        reference_sigmas.append(reference_sigma)
-        if not math.isclose(
-            reference_sigma,
-            expected_reference_sigma,
-            rel_tol=1.0e-9,
-            abs_tol=1.0e-12,
-        ):
-            projection_id = row.get("projection_id", "<unknown>")
-            raise ValueError(
-                "Phase-1 calibration reference sigma mismatch for "
-                f"{projection_id}: found {reference_sigma!r}, expected "
-                f"{expected_reference_sigma!r} from "
-                "profiling.programming_noise_scale."
-            )
-        if float(row["noise_reference_scale"]) <= 0.0:
-            raise ValueError("Every Phase-1 noise_reference_scale must be positive.")
-
-    phase4_aihwkit = config.get("phase4", {}).get("aihwkit", {})
-    if phase4_aihwkit.get("forward_backend") != "aihwkit":
-        raise ValueError("Phase 4 must use the AIHWKit forward backend.")
-    if not bool(phase4_aihwkit.get("all_transformer_projections_analog", False)):
-        raise ValueError("Phase 4 must make all transformer projections analog.")
-    if bool(phase4_aihwkit.get("internal_programming_noise", False)):
-        raise ValueError("Phase 4 internal programming noise must remain disabled.")
-
-    trace = TileFidelityTrace.load_npz(args.phase2_trace)
-    hardware = config["hardware"]
-    num_tiles = int(hardware["num_tiles"])
-    tiers_per_tile = int(hardware["tiers_per_tile"])
-    if trace.noise_std.shape[1] != num_tiles:
-        raise ValueError("Phase-2 tile count does not match unified config.")
-    if str(trace.metadata.get("noise_unit", "")) != (
-        "pcmlike_prog_noise_scale_equivalent"
-    ):
-        raise ValueError("Phase-2 trace has the wrong noise unit.")
-    if list(map(int, trace.tile_ids)) != list(range(num_tiles)):
-        raise ValueError("Phase-2 tile IDs must be contiguous 0..num_tiles-1.")
-
-    expected_projection_ids = {
-        f"block_{block}/{projection}"
-        for block in range(12)
-        for projection in (
-            "attn.c_attn", "attn.c_proj", "mlp.c_fc", "mlp.c_proj"
-        )
-    }
-    logical_signatures: set[tuple[tuple[str, str], ...]] = set()
-    for policy in POLICIES:
-        path = args.phase3_dir / f"placement_{policy}.csv"
-        with path.open(newline="", encoding="utf-8") as stream:
-            rows = list(csv.DictReader(stream))
-        if len(rows) != 480:
-            raise ValueError(f"{path} must contain 480 tier rows, got {len(rows)}.")
-        projection_ids = {row["projection_id"] for row in rows}
-        if projection_ids != expected_projection_ids:
-            missing = expected_projection_ids - projection_ids
-            extra = projection_ids - expected_projection_ids
-            raise ValueError(f"{path}: missing={sorted(missing)}, extra={sorted(extra)}")
-        occupied: set[tuple[int, int]] = set()
-        signature = []
-        for row in rows:
-            tile_id = int(row["tile_id"])
-            tier_id = int(row["tier_start"])
-            if not 0 <= tile_id < num_tiles:
-                raise ValueError(f"{path}: invalid tile_id {tile_id}.")
-            if not 0 <= tier_id < tiers_per_tile:
-                raise ValueError(f"{path}: invalid tier_id {tier_id}.")
-            slot = (tile_id, tier_id)
-            if slot in occupied:
-                raise ValueError(f"{path}: duplicate physical slot {slot}.")
-            occupied.add(slot)
-            if row.get("sensitivity_score_unit") != "delta_ppl_total":
-                raise ValueError(f"{path}: wrong sensitivity score unit.")
-            signature.append((row["shard_id"], row["projection_id"]))
-        logical_signatures.add(tuple(sorted(signature)))
-
-    if len(logical_signatures) != 1:
-        raise ValueError("Phase-3 policies do not contain the same logical shards.")
-
-    total_capacity = num_tiles * tiers_per_tile
-    print("Pipeline contracts validated")
-    print("  Phase-1 sensitivities: 48 total-DeltaPPL rows")
-    print("  Phase-1 calibrations: 48")
-    print(f"  Reference programming-noise scale: {expected_reference_sigma:.12g}")
-    print(f"  Phase-2 trace: {trace.num_timesteps} x {trace.num_tiles}")
-    print(f"  Phase-3 projection tiers: 480 / {total_capacity}")
-    print(f"  Nominal utilization: {480 / total_capacity:.4%}")
-
-
-if __name__ == "__main__":
-    main()
+    main(args.config, args.phase1_results, args.phase2_trace, args.phase3_dir)

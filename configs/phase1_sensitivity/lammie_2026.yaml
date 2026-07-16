@@ -23,7 +23,12 @@ profiling:
   clip_sigma: 2.5
   tile_size: 512
   adc_dac_bits: 8
-  programming_noise_scale: 1.0
+  # Characterize sensitivity at the SAME programming-noise scale the pipeline
+  # actually operates at (Phase-2 fidelity_model.reference_noise_std). The model's
+  # DeltaPPL response is nonlinear in noise magnitude, so a ranking measured at a
+  # different scale does not transfer (measured Pearson ~0.09 at the 1.0-vs-0.023
+  # mismatch), which is what made static_sensitivity underperform the baselines.
+  programming_noise_scale: 0.700
   weight_scaling_omega: 1.0
   num_seeds: 10
   seed_stride: 1

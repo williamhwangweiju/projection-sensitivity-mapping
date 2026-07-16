@@ -12,13 +12,15 @@ model:
   device: cpu                     # cpu | cuda
 
 dataset:
-  # Must match Phase 1 exactly for fair NLL comparison
+  # Must match Phase 1 EXACTLY (configs/phase1_sensitivity/lammie_2026.yaml).
+  # The runner enforces this whenever max_tokens is null (strict_phase1_compatibility),
+  # and always checks that the digital PPL reproduces the Phase-1 baseline.
   name: Salesforce/wikitext
   config: wikitext-103-raw-v1
   split: test
-  max_tokens: 4096                # null = use all; set a small integer for quick tests
-  sequence_length: 512
-  stride: 512
+  max_tokens: null                # null = use all (paper run); set a small int only for quick smoke tests
+  sequence_length: 1024           # matches Phase 1
+  stride: 1024                    # matches Phase 1
   batch_size: 1
   document_separator: "\n\n"
   drop_incomplete_final_sequence: true
