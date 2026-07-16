@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+"""Run/resume the complete hybrid digital–analog research pipeline."""
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+import sys
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+
+
+def required(path: Path | None, label: str) -> Path:
+    if path is None or not path.is_file():
+        raise FileNotFoundError(f"{label} artifact is required when its producing phase is skipped: {path}")
+    return path
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=Path, default=REPO_ROOT / "configs/full_pipeline/gpt2_hybrid_3dcim.yaml")
+    parser.add_argument("--phase1-artifact", type=Path)
+    parser.add_argument("--operating-points-artifact", type=Path)
+    parser.add_argument("--trace-artifact", type=Path)
+    parser.add_argument("--phase3-manifest", type=Path)
+    parser.add_argument("--phase5-manifest", type=Path)
+    for phase in (1, 2, 3, 4, 5):
+        parser.add_argument(f"--skip-phase{phase}", action="store_true")
+    parser.add_argument("--skip-adaptive-quality", action="store_true")
+    args = parser.parse_args()
+
+    config = args.config.resolve()
+    print(f"Repository: {REPO_ROOT}")
+    print(f"Configuration: {config}")
+
+    if args.skip_phase1:
+        phase1 = required(args.phase1_artifact, "Phase 1")
+        operating_points = required(args.operating_points_artifact, "Phase 1.5")
+    else:
+        from experiments.phase1_sensitivity.run_aihwkit_profiling import (
+            main as run_phase1,
+        )
+        from experiments.phase1_sensitivity.analyze_results import (
+            main as analyze_phase1,
+        )
+        from experiments.phase1_5_digital_selection.select_digital_operating_points import (
+            main as run_selection,
+        )
+
+        phase1 = run_phase1(config)
+        analyze_phase1(phase1)
+        operating_points = run_selection(config, phase1)
+
+    if args.skip_phase2:
+        trace = required(args.trace_artifact, "Phase 2")
+    else:
+        from experiments.phase2_fidelity.run_fidelity_model import main as run_phase2
+
+        trace = run_phase2(config)
+
+    if args.skip_phase3:
+        phase3_manifest = required(args.phase3_manifest, "Phase 3")
+    else:
+        from experiments.phase3_baselines.run_baseline_mappings import (
+            main as run_phase3,
+        )
+
+        phase3_manifest = run_phase3(config, phase1, operating_points, trace)
+
+    from scripts.validate_pipeline_contracts import validate_pipeline
+
+    validate_pipeline(config, phase1, operating_points, trace, phase3_manifest)
+
+    phase4_metadata: Path | None = None
+    if not args.skip_phase4:
+        from experiments.phase4_quality.run_hybrid_quality import main as run_phase4
+
+        phase4_metadata = run_phase4(
+            config,
+            phase1,
+            operating_points,
+            trace,
+            phase3_manifest,
+        )
+
+    if args.skip_phase5:
+        phase5_manifest = args.phase5_manifest
+    else:
+        from experiments.phase5_adaptive.run_adaptive_mapping import (
+            main as run_phase5_mapping,
+        )
+
+        phase5_manifest = run_phase5_mapping(
+            config,
+            phase1,
+            operating_points,
+            trace,
+            phase3_manifest,
+        )
+
+    if (
+        not args.skip_phase5
+        and not args.skip_adaptive_quality
+        and phase5_manifest is not None
+    ):
+        phase4_quality_csv: Path | None = None
+        if phase4_metadata is not None:
+            from src.common.config import load_json
+            metadata = load_json(phase4_metadata)
+            value = metadata.get("artifacts", {}).get("quality")
+            phase4_quality_csv = None if value is None else Path(value)
+        from experiments.phase5_adaptive.run_adaptive_quality import (
+            main as run_phase5_quality,
+        )
+
+        run_phase5_quality(
+            config,
+            operating_points,
+            trace,
+            phase5_manifest,
+            phase4_quality_csv,
+        )
+
+    print("Hybrid pipeline complete.")
+    print(f"Phase 1: {phase1}")
+    print(f"Digital operating points: {operating_points}")
+    print(f"Phase 2: {trace}")
+    print(f"Phase 3: {phase3_manifest}")
+    if phase4_metadata is not None:
+        print(f"Phase 4: {phase4_metadata}")
+    if phase5_manifest is not None:
+        print(f"Phase 5: {phase5_manifest}")
+
+
+if __name__ == "__main__":
+    main()

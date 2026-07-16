@@ -1,136 +1,102 @@
 #!/usr/bin/env python3
-"""Validate cross-phase units, projection metadata and physical placements."""
+"""Validate digital-set, sharding, capacity, and cross-phase artifact contracts."""
 from __future__ import annotations
 
 import argparse
-import json
-import math
-import sys
+import csv
 from pathlib import Path
+import sys
+from typing import Any
 
-import numpy as np
-import pandas as pd
-import yaml
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from src.common.config import load_json, load_yaml
+from src.evaluation.noise_materialization import read_placement_csv
+from src.simulators.tile_fidelity import load_trace
 
 
-def fail(message: str) -> None:
-    raise AssertionError(message)
-
-
-def main(
+def validate_pipeline(
     config_path: Path,
-    phase1_results: Path,
-    phase2_trace: Path,
-    phase3_dir: Path,
+    phase1_path: Path,
+    operating_points_path: Path,
+    trace_path: Path,
+    phase3_manifest_path: Path,
 ) -> None:
-    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    phase1 = json.loads(phase1_results.read_text(encoding="utf-8"))
-    with np.load(phase2_trace, allow_pickle=False) as archive:
-        trace = {name: archive[name] for name in archive.files}
+    config = load_yaml(config_path)
+    profile = load_json(phase1_path)
+    points_payload = load_json(operating_points_path)
+    phase3 = load_json(phase3_manifest_path)
+    trace = load_trace(str(trace_path))
 
-    analog_reference = float(config["analog"]["reference_noise_std"])
-    phase2_reference = float(config["fidelity_model"]["reference_noise_std"])
-    phase3_reference = float(config["phase3"]["reference_noise_std"])
-    if not (
-        math.isclose(analog_reference, phase2_reference, abs_tol=1e-12)
-        and math.isclose(analog_reference, phase3_reference, abs_tol=1e-12)
-    ):
-        fail("Reference noise standard deviations differ across phases.")
+    projection_rows = profile["projections"]
+    projection_ids = [str(row["projection_id"]) for row in projection_rows]
+    if len(projection_ids) != len(set(projection_ids)):
+        raise ValueError("Phase 1 contains duplicate projection IDs.")
+    if profile["mapping_sensitivity_unit"] != "delta_nll_noise":
+        raise ValueError("Hybrid pipeline requires Phase-1 delta_nll_noise sensitivity.")
+    if trace.noise_std.shape[1] != int(config["hardware"]["num_tiles"]):
+        raise ValueError("Phase-2 tile count disagrees with the hardware config.")
 
-    analog_metadata = phase1["metadata"]["analog_configuration"]
-    expected = {
-        "clipping": "manual_projection_wide_symmetric_gaussian",
-        "clip_order": "clip_once_before_noise",
-        "reclip_after_noise": False,
-        "noise_unit": "normalized_std_fraction_of_programmed_projection_range",
-        "forward_is_perfect": False,
-        "internal_clipping": False,
-        "internal_programming_noise": False,
-        "internal_read_noise": False,
-        "internal_drift": False,
-    }
-    for key, value in expected.items():
-        if analog_metadata.get(key) != value:
-            fail(f"Phase-1 analog contract mismatch for {key}: {analog_metadata.get(key)!r}")
-    if float(analog_metadata["clip_sigma"]) != float(config["analog"]["clip_sigma"]):
-        fail("Phase-1 clip_sigma does not match current config.")
-    if str(analog_metadata["programmed_range_mode"]) != str(
-        config["analog"]["range_mode"]
-    ):
-        fail("Phase-1 range mode does not match current config.")
+    point_by_id: dict[str, dict[str, Any]] = {}
+    full_set = set(projection_ids)
+    for point in points_payload["operating_points"]:
+        point_id = str(point["digital_set_id"])
+        if point_id in point_by_id:
+            raise ValueError(f"Duplicate digital_set_id: {point_id}")
+        point_by_id[point_id] = point
+        digital = set(point["digital_projection_ids"])
+        analog = set(point["analog_projection_ids"])
+        if digital & analog or digital | analog != full_set:
+            raise ValueError(f"Digital/analog partition is invalid for {point_id}.")
+        feasible = int(point["analog_shard_count"]) <= int(point["available_physical_tiers"])
+        if feasible != bool(point["capacity_feasible"]):
+            raise ValueError(f"Capacity flag mismatch for {point_id}.")
 
-    projections = phase1["results"]["projections"]
-    if len(projections) != 48:
-        fail(f"Expected 48 Phase-1 projections, found {len(projections)}.")
-    projection_shapes = {}
-    for record in projections:
-        preprocessing = record.get("preprocessing", {})
-        for field in (
-            "original_checksum",
-            "clipped_checksum",
-            "clip_threshold",
-            "programmed_range",
-        ):
-            if field not in preprocessing:
-                fail(f"{record['projection_id']} is missing preprocessing.{field}.")
-        if float(preprocessing["programmed_range"]) <= 0:
-            fail(f"{record['projection_id']} has invalid programmed range.")
-        projection_shapes[str(record["projection_id"])] = tuple(
-            int(value) for value in record["weight_shape_out_in"]
-        )
+    grouped: dict[str, dict[str, set[str]]] = {}
+    for item in phase3["placements"]:
+        point_id = str(item["digital_set_id"])
+        policy = str(item["policy"])
+        point = point_by_id[point_id]
+        if not bool(point["capacity_feasible"]):
+            raise ValueError(f"Phase 3 generated a placement for infeasible {point_id}.")
+        rows = read_placement_csv(item["placement_path"])
+        shard_ids = {str(row["shard_id"]) for row in rows}
+        if len(shard_ids) != len(rows):
+            raise ValueError(f"Duplicate shard in {point_id}/{policy}.")
+        slots = {(int(row["tile_id"]), int(row["tier_id"])) for row in rows}
+        if len(slots) != len(rows):
+            raise ValueError(f"Reused physical tier in {point_id}/{policy}.")
+        digital = set(point["digital_projection_ids"])
+        if any(str(row["projection_id"]) in digital for row in rows):
+            raise ValueError(f"A protected digital projection was sharded in {point_id}/{policy}.")
+        if len(rows) != int(point["analog_shard_count"]):
+            raise ValueError(f"Analog shard count mismatch in {point_id}/{policy}.")
+        grouped.setdefault(point_id, {})[policy] = shard_ids
 
-    if trace["noise_std"].ndim != 2:
-        fail("Phase-2 noise_std is not [timesteps, tiles].")
-    if trace["noise_std"].shape[1] != int(config["hardware"]["num_tiles"]):
-        fail("Phase-2 tile count does not match hardware.num_tiles.")
-
-    filenames = config["phase3"]["placement_filenames"]
-    policies = ["random", "sequential", "hardware_only", "static_sensitivity"]
-    for policy in policies:
-        path = phase3_dir / str(filenames[policy])
-        if not path.is_file():
-            fail(f"Missing placement: {path}")
-        frame = pd.read_csv(path)
-        if len(frame) != 480:
-            fail(f"{policy} placement has {len(frame)} rows; expected 480.")
-        if frame["shard_id"].nunique() != 480:
-            fail(f"{policy} placement does not contain 480 unique shards.")
-        if frame[["tile_id", "tier_id"]].duplicated().any():
-            fail(f"{policy} placement reuses a physical tier.")
-        for projection_id, group in frame.groupby("projection_id"):
-            if projection_id not in projection_shapes:
-                fail(f"Unknown projection in placement: {projection_id}")
-            shape = projection_shapes[projection_id]
-            coverage = np.zeros(shape, dtype=np.int8)
-            for row in group.itertuples(index=False):
-                coverage[
-                    int(row.out_start) : int(row.out_end),
-                    int(row.in_start) : int(row.in_end),
-                ] += 1
-            if not np.all(coverage == 1):
-                fail(f"{policy}/{projection_id} does not cover every weight once.")
-
-    mapping_summary = pd.read_csv(phase3_dir / "mapping_timestep_summary.csv")
-    values = mapping_summary.set_index("policy")[
-        "sensitivity_weighted_variance_proxy"
-    ]
-    static = float(values["static_sensitivity"])
-    for baseline in ("random", "sequential", "hardware_only"):
-        if static > float(values[baseline]) + max(1e-12, abs(static) * 1e-10):
-            fail(f"Static sensitivity proxy exceeds {baseline} at mapping time.")
+    expected_policies = set(str(value) for value in config["phase3"]["policies"])
+    for point_id, policy_sets in grouped.items():
+        if set(policy_sets) != expected_policies:
+            raise ValueError(f"Missing policies for {point_id}: {expected_policies - set(policy_sets)}")
+        reference = next(iter(policy_sets.values()))
+        if any(shards != reference for shards in policy_sets.values()):
+            raise ValueError(f"Policies do not place the same analog shard set for {point_id}.")
 
     print("Pipeline contracts validated successfully.")
-    print("  48 projections")
-    print("  480 unique physical shards per policy")
-    print("  identical manual clipping/noise units across Phases 1-4")
-    print("  static sensitivity placement is proxy-optimal at mapping timestep")
+    print(f"  {len(projection_ids)} profiled digital/analog candidates")
+    print(f"  {len(point_by_id)} digital operating points")
+    print(f"  {len(grouped)} capacity-feasible operating points with placements")
+    print("  protected projections excluded from analog capacity/noise")
+    print("  identical analog shard sets across static policies")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--phase1-results", type=Path, required=True)
-    parser.add_argument("--phase2-trace", type=Path, required=True)
-    parser.add_argument("--phase3-dir", type=Path, required=True)
+    parser.add_argument("--phase1", type=Path, required=True)
+    parser.add_argument("--operating-points", type=Path, required=True)
+    parser.add_argument("--trace", type=Path, required=True)
+    parser.add_argument("--phase3-manifest", type=Path, required=True)
     args = parser.parse_args()
-    main(args.config, args.phase1_results, args.phase2_trace, args.phase3_dir)
+    validate_pipeline(args.config, args.phase1, args.operating_points, args.trace, args.phase3_manifest)

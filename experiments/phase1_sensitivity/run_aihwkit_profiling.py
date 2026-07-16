@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Run Phase 1: one projection analog at a time with manual clip/noise."""
+"""Run Phase 1 projection sensitivity profiling on calibration data."""
 from __future__ import annotations
 
 import argparse
-import json
 import platform
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
+import sys
 from typing import Any
 
 import datasets
@@ -15,26 +14,17 @@ import torch
 import transformers
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-
-def find_repo_root(path: Path) -> Path:
-    for candidate in (path.resolve().parent, *path.resolve().parents):
-        if (candidate / "src" / "profilers" / "aihwkit_profiler.py").is_file():
-            return candidate
-    raise RuntimeError("Could not find repository root.")
-
-
-REPO_ROOT = find_repo_root(Path(__file__))
+REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.common.config import load_yaml, resolve_path, with_seed
-from src.common.dataset import build_lm_batches
+from src.common.config import file_sha256, git_commit, load_yaml, resolve_path, save_json
+from src.common.dataset import build_causal_lm_batches
 from src.profilers.aihwkit_profiler import AIHWKITSensitivityProfiler
 
 
 def package_versions() -> dict[str, Any]:
     import aihwkit
-
     return {
         "python": platform.python_version(),
         "torch": torch.__version__,
@@ -44,10 +34,8 @@ def package_versions() -> dict[str, Any]:
     }
 
 
-def main(config_path: Path, seed: int | None = None) -> Path:
+def main(config_path: Path) -> Path:
     config = load_yaml(config_path)
-    if seed is not None:
-        config = with_seed(config, seed)
     model_name = str(config["model"]["name"])
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     if tokenizer.pad_token_id is None:
@@ -57,57 +45,43 @@ def main(config_path: Path, seed: int | None = None) -> Path:
     model.config.pad_token_id = tokenizer.pad_token_id
     model.config.use_cache = False
     model.eval()
-
-    batches, dataset_metadata = build_lm_batches(config, tokenizer)
+    batches, dataset_metadata = build_causal_lm_batches(config, tokenizer)
     profiler = AIHWKITSensitivityProfiler(model, config)
-    results = profiler.profile_all(batches)
-
-    phase1 = config["phase1"]
-    output_root = resolve_path(REPO_ROOT, phase1["output_root"])
-    output_root.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    prefix = str(phase1.get("results_filename_prefix", "gpt2_manual_noise"))
-    output_path = output_root / f"{prefix}_{timestamp}.json"
-
+    projections = profiler.profile_all(batches)
+    first = projections[0]
     payload = {
         "metadata": {
             "created_at_utc": datetime.now(timezone.utc).isoformat(),
-            "method": "manual_clip_manual_gaussian_noise_aihwkit_nonperfect_forward",
+            "repository_commit": git_commit(REPO_ROOT),
+            "config_path": str(config_path.resolve()),
+            "config_sha256": file_sha256(config_path),
             "software_versions": package_versions(),
             "model": {
-                "name": model.config._name_or_path,
-                "n_layer": model.config.n_layer,
-                "n_embd": model.config.n_embd,
-                "vocab_size": model.config.vocab_size,
+                "name": model_name,
+                "n_layer": int(model.config.n_layer),
+                "n_embd": int(model.config.n_embd),
+                "vocab_size": int(model.config.vocab_size),
             },
             "dataset": dataset_metadata,
             "analog_configuration": profiler.analog_configuration(),
         },
+        "baseline": {"clean_nll": first["nll_clean"], "clean_ppl": first["ppl_clean"]},
+        "mapping_sensitivity_field": "sensitivity_score_for_mapping",
+        "mapping_sensitivity_unit": "delta_nll_noise",
+        "projections": projections,
         "requested_config": config,
-        "baseline": {
-            "digital_nll": results["digital_nll"],
-            "digital_ppl": results["digital_perplexity"],
-            "token_count": results["token_count"],
-        },
-        "results": results,
     }
-    with output_path.open("w", encoding="utf-8") as stream:
-        json.dump(payload, stream, indent=2, allow_nan=False)
-
-    print("\nPHASE 1 COMPLETE")
-    print(f"Digital NLL/PPL: {results['digital_nll']:.8f} / {results['digital_perplexity']:.6f}")
-    print(f"Profiled projections: {len(results['projections'])}")
-    print(f"Results saved to: {output_path}")
+    phase = config["phase1"]
+    output_root = resolve_path(phase["output_root"])
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_path = output_root / f"{phase.get('results_filename_prefix', 'gpt2_hybrid_sensitivity')}_{timestamp}.json"
+    save_json(output_path, payload)
+    print(f"Phase 1 complete: {output_path}")
     return output_path
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--config",
-        type=Path,
-        default=REPO_ROOT / "configs" / "full_pipeline" / "gpt2_3dcim.yaml",
-    )
-    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--config", type=Path, default=REPO_ROOT / "configs/full_pipeline/gpt2_hybrid_3dcim.yaml")
     args = parser.parse_args()
-    main(args.config, args.seed)
+    main(args.config)

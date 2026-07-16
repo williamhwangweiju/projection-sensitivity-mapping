@@ -1,153 +1,138 @@
-"""Build physical-placement-derived per-weight sigma maps for Phase 4."""
+"""Coordinate-preserving tile-noise materialization for hybrid GPT-2 models."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+import csv
 from pathlib import Path
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence
 
-import numpy as np
-import pandas as pd
 import torch
 from torch import Tensor
 
-from src.common.analog import materialize_manual_noise
-from src.evaluation.aihwkit_gpt2 import AnalogProjectionReference
+from src.common.analog import projection_noise_seed, set_analog_weights_exact
+if TYPE_CHECKING:
+    from src.evaluation.aihwkit_gpt2 import HybridAnalogModel
 
 
-REQUIRED_PLACEMENT_COLUMNS = {
-    "projection_id",
-    "shard_id",
-    "tile_id",
-    "tier_id",
-    "out_start",
-    "out_end",
-    "in_start",
-    "in_end",
+_INTEGER_FIELDS = {
+    "timestep", "shard_index", "row_start", "row_end", "col_start", "col_end",
+    "weight_count", "tile_id", "tier_id",
 }
+_FLOAT_FIELDS = {"shard_weight", "sensitivity", "importance", "tile_noise_std"}
 
 
-@dataclass(frozen=True)
-class ProjectionNoiseMaterialization:
-    noisy_weight: Tensor
-    noise: Tensor
-    normalized_sigma_map: Tensor
-    absolute_sigma_map: Tensor
-    assignment_summary: dict[str, Any]
+def read_placement_csv(path: str | Path) -> list[dict[str, Any]]:
+    """Read a Phase-3/5 placement CSV and restore numeric field types."""
+    with Path(path).open("r", newline="", encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+    parsed: list[dict[str, Any]] = []
+    for row in rows:
+        item: dict[str, Any] = dict(row)
+        for field in _INTEGER_FIELDS:
+            if field in item and item[field] != "":
+                item[field] = int(item[field])
+        for field in _FLOAT_FIELDS:
+            if field in item and item[field] != "":
+                item[field] = float(item[field])
+        parsed.append(item)
+    return parsed
 
 
-def load_placement(path: Path) -> pd.DataFrame:
-    frame = pd.read_csv(path)
-    missing = sorted(REQUIRED_PLACEMENT_COLUMNS - set(frame.columns))
-    if missing:
-        raise ValueError(f"Placement {path} is missing columns: {missing}")
-    if frame["shard_id"].duplicated().any():
-        raise ValueError(f"Placement {path} contains duplicate shard IDs.")
-    return frame
+def update_placement_noise(
+    rows: Iterable[Mapping[str, Any]], tile_noise: Sequence[float], timestep: int
+) -> list[dict[str, Any]]:
+    """Keep physical assignments fixed while substituting the current tile state."""
+    updated: list[dict[str, Any]] = []
+    for source in rows:
+        row = dict(source)
+        tile_id = int(row["tile_id"])
+        row["timestep"] = int(timestep)
+        row["tile_noise_std"] = float(tile_noise[tile_id])
+        updated.append(row)
+    return updated
 
 
-def build_normalized_sigma_map(
-    reference: AnalogProjectionReference,
-    placement: pd.DataFrame,
-    tile_noise_std: np.ndarray,
-    tile_available: np.ndarray,
+def _paired_standard_normal(
+    shape: torch.Size,
     *,
-    unavailable_action: str,
-) -> tuple[Tensor, list[dict[str, Any]]]:
-    rows = placement[placement["projection_id"] == reference.projection_id]
-    if rows.empty:
-        raise ValueError(f"Placement has no shards for {reference.projection_id}.")
-    shape = tuple(reference.clipped_weight.shape)
-    sigma_map = torch.full(shape, float("nan"), dtype=torch.float32)
-    coverage = torch.zeros(shape, dtype=torch.int16)
-    assignment_rows: list[dict[str, Any]] = []
-    for row in rows.itertuples(index=False):
-        tile_id = int(row.tile_id)
-        if tile_id < 0 or tile_id >= tile_noise_std.size:
-            raise ValueError(f"Invalid tile_id {tile_id} in placement.")
-        if not bool(tile_available[tile_id]):
-            if unavailable_action == "error":
-                raise RuntimeError(
-                    f"{reference.projection_id} is mapped to unavailable tile {tile_id}."
-                )
-            raise ValueError(f"Unsupported unavailable_action: {unavailable_action!r}")
-        out_start, out_end = int(row.out_start), int(row.out_end)
-        in_start, in_end = int(row.in_start), int(row.in_end)
-        if not (
-            0 <= out_start < out_end <= shape[0]
-            and 0 <= in_start < in_end <= shape[1]
-        ):
-            raise ValueError(
-                f"Invalid shard bounds for {reference.projection_id}: "
-                f"[{out_start}:{out_end}, {in_start}:{in_end}] vs {shape}."
+    base_seed: int,
+    projection_id: str,
+    realization: int,
+) -> Tensor:
+    """Return a policy-independent coordinate noise field for paired comparisons."""
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(projection_noise_seed(base_seed, projection_id, realization))
+    return torch.randn(tuple(shape), generator=generator, dtype=torch.float32)
+
+
+def apply_tile_noise(
+    hybrid: "HybridAnalogModel",
+    placement_rows: Iterable[Mapping[str, Any]],
+    *,
+    base_seed: int,
+    realization: int,
+    sign: float = 1.0,
+) -> dict[str, float]:
+    """Write one paired, tile-scaled logical-weight perturbation into the analog set.
+
+    The standard-normal field is keyed only by projection and realization. Policies
+    therefore see the same coordinate-level random field; only the tile-dependent
+    scale assigned to each shard changes.
+    """
+    rows_by_projection: dict[str, list[Mapping[str, Any]]] = {}
+    for row in placement_rows:
+        rows_by_projection.setdefault(str(row["projection_id"]), []).append(row)
+
+    expected = set(hybrid.analog_projection_ids)
+    actual = set(rows_by_projection)
+    if expected != actual:
+        missing = sorted(expected - actual)
+        extra = sorted(actual - expected)
+        raise ValueError(
+            "Placement/analog-set mismatch: "
+            f"missing={missing[:5]} extra={extra[:5]}"
+        )
+
+    normalized_noise_energy = 0.0
+    total_weights = 0
+    for projection_id, state in hybrid.states.items():
+        module = state.analog_module
+        nominal = state.clipped_weight
+        standard = _paired_standard_normal(
+            nominal.shape,
+            base_seed=base_seed,
+            projection_id=projection_id,
+            realization=realization,
+        )
+        noisy = nominal.clone()
+        covered = torch.zeros_like(nominal, dtype=torch.bool)
+        for row in rows_by_projection[projection_id]:
+            rs, re = int(row["row_start"]), int(row["row_end"])
+            cs, ce = int(row["col_start"]), int(row["col_end"])
+            if bool(covered[rs:re, cs:ce].any().item()):
+                raise ValueError(f"Overlapping shard coordinates for {projection_id}.")
+            normalized_std = float(row["tile_noise_std"])
+            delta = (
+                standard[rs:re, cs:ce]
+                * normalized_std
+                * float(state.programmed_range)
+                * float(sign)
             )
-        normalized_sigma = float(tile_noise_std[tile_id])
-        sigma_map[out_start:out_end, in_start:in_end] = normalized_sigma
-        coverage[out_start:out_end, in_start:in_end] += 1
-        assignment_rows.append(
-            {
-                "projection_id": reference.projection_id,
-                "shard_id": str(row.shard_id),
-                "tile_id": tile_id,
-                "tier_id": int(row.tier_id),
-                "out_start": out_start,
-                "out_end": out_end,
-                "in_start": in_start,
-                "in_end": in_end,
-                "normalized_noise_std": normalized_sigma,
-                "programmed_range": float(
-                    reference.preprocessing["programmed_range"]
-                ),
-                "absolute_noise_std": normalized_sigma
-                * float(reference.preprocessing["programmed_range"]),
-            }
+            noisy[rs:re, cs:ce] += delta
+            covered[rs:re, cs:ce] = True
+            normalized_noise_energy += float(delta.square().sum().item())
+            total_weights += int(delta.numel())
+        if not bool(covered.all().item()):
+            raise ValueError(f"Incomplete shard coverage for {projection_id}.")
+        set_analog_weights_exact(
+            module,
+            noisy,
+            state.bias,
+            verify=False,
         )
-    if bool((coverage != 1).any().item()):
-        zero = int((coverage == 0).sum().item())
-        overlap = int((coverage > 1).sum().item())
-        raise RuntimeError(
-            f"{reference.projection_id}: placement coverage failure: "
-            f"uncovered={zero}, overlapped={overlap}."
-        )
-    if not bool(torch.isfinite(sigma_map).all().item()):
-        raise RuntimeError(f"{reference.projection_id}: sigma map is non-finite.")
-    return sigma_map, assignment_rows
 
-
-def materialize_projection_noise(
-    reference: AnalogProjectionReference,
-    normalized_sigma_map: Tensor,
-    gaussian_field: Tensor,
-) -> ProjectionNoiseMaterialization:
-    noisy, noise = materialize_manual_noise(
-        reference.clipped_weight,
-        normalized_sigma_map,
-        float(reference.preprocessing["programmed_range"]),
-        gaussian_field,
-    )
-    absolute_sigma = normalized_sigma_map * float(
-        reference.preprocessing["programmed_range"]
-    )
-    weighted_rms_normalized = float(
-        torch.sqrt(torch.mean(normalized_sigma_map.square())).item()
-    )
-    summary = {
-        "projection_id": reference.projection_id,
-        "normalized_sigma_mean": float(normalized_sigma_map.mean().item()),
-        "normalized_sigma_rms": weighted_rms_normalized,
-        "normalized_sigma_min": float(normalized_sigma_map.min().item()),
-        "normalized_sigma_max": float(normalized_sigma_map.max().item()),
-        "absolute_sigma_mean": float(absolute_sigma.mean().item()),
-        "absolute_sigma_rms": float(
-            torch.sqrt(torch.mean(absolute_sigma.square())).item()
+    return {
+        "injected_weight_count": float(total_weights),
+        "injected_noise_rms": (
+            (normalized_noise_energy / total_weights) ** 0.5 if total_weights else 0.0
         ),
-        "realized_noise_std": float(noise.std(unbiased=False).item()),
-        "realized_noise_abs_mean": float(noise.abs().mean().item()),
-        "realized_noise_abs_max": float(noise.abs().max().item()),
     }
-    return ProjectionNoiseMaterialization(
-        noisy_weight=noisy,
-        noise=noise,
-        normalized_sigma_map=normalized_sigma_map,
-        absolute_sigma_map=absolute_sigma,
-        assignment_summary=summary,
-    )

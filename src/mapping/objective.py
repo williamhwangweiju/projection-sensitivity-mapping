@@ -1,48 +1,37 @@
-"""Phase-3 sensitivity-weighted variance proxy."""
+"""Placement quality proxies and migration costs."""
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Iterable, Mapping, Any
 
-import numpy as np
-
-from src.mapping.placement import Assignment
+from src.mapping.placement import PlacementRecord
 
 
-def evaluate_placement(
-    assignments: Iterable[Assignment],
-    tile_noise_std: np.ndarray,
-    *,
-    reference_noise_std: float,
-    faulted: np.ndarray | None = None,
-    available: np.ndarray | None = None,
-) -> dict[str, float | int]:
-    if tile_noise_std.ndim != 1:
-        raise ValueError("tile_noise_std must be one-dimensional.")
-    if reference_noise_std <= 0:
-        raise ValueError("reference_noise_std must be positive.")
-    weighted_variance = 0.0
-    weighted_noise = 0.0
-    total_shard_weight = 0.0
-    shards_on_faulted = 0
-    shards_on_unavailable = 0
-    projection_ids_on_faulted: set[str] = set()
-    for assignment in assignments:
-        tile_id = assignment.tile_id
-        normalized = float(tile_noise_std[tile_id]) / reference_noise_std
-        importance = assignment.shard.importance
-        weighted_variance += importance * normalized**2
-        weighted_noise += importance * normalized
-        total_shard_weight += assignment.shard.shard_weight
-        if faulted is not None and bool(faulted[tile_id]):
-            shards_on_faulted += 1
-            projection_ids_on_faulted.add(assignment.shard.projection_id)
-        if available is not None and not bool(available[tile_id]):
-            shards_on_unavailable += 1
+def placement_proxy(records: Iterable[PlacementRecord], *, variance: bool = True) -> float:
+    total = 0.0
+    for row in records:
+        noise_term = row.tile_noise_std ** 2 if variance else row.tile_noise_std
+        total += row.importance * noise_term
+    return total
+
+
+def migration_cost(
+    previous: Iterable[PlacementRecord], current: Iterable[PlacementRecord]
+) -> dict[str, float]:
+    old = {row.shard_id: row for row in previous}
+    new = {row.shard_id: row for row in current}
+    if old.keys() != new.keys():
+        raise ValueError("Migration comparisons require identical analog shard sets.")
+    moved = [
+        shard_id for shard_id in old
+        if (old[shard_id].tile_id, old[shard_id].tier_id) != (new[shard_id].tile_id, new[shard_id].tier_id)
+    ]
+    moved_weights = sum(new[shard_id].weight_count for shard_id in moved)
     return {
-        "sensitivity_weighted_variance_proxy": float(weighted_variance),
-        "sensitivity_weighted_noise_proxy": float(weighted_noise),
-        "total_shard_weight": float(total_shard_weight),
-        "shards_on_faulted_tiles": int(shards_on_faulted),
-        "shards_on_unavailable_tiles": int(shards_on_unavailable),
-        "projections_on_faulted_tiles": int(len(projection_ids_on_faulted)),
+        "moved_shards": float(len(moved)),
+        "moved_weights": float(moved_weights),
+        "moved_bytes_fp32": float(4 * moved_weights),
     }
+
+
+def records_from_dicts(rows: Iterable[Mapping[str, Any]]) -> list[PlacementRecord]:
+    return [PlacementRecord(**{field: row[field] for field in PlacementRecord.__dataclass_fields__}) for row in rows]

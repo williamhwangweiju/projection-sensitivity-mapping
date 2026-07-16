@@ -1,0 +1,202 @@
+# Hybrid digital–analog GPT-2 × AIHWKit × heterogeneous 3D-CIM pipeline.
+#
+# Central research question:
+# Under a constrained digital-compute budget, which GPT-2 projections should
+# remain digital, and how should the remaining analog projection shards be
+# placed/remapped as tile fidelity changes over time?
+
+experiment:
+  seed: 42
+  placement_seed: 42
+
+model:
+  name: gpt2
+  device: cpu  # set to cuda in Colab when AIHWKit CUDA is available
+
+# Phase 1 calibration/profiling data. Keep separate from final evaluation data.
+dataset:
+  name: Salesforce/wikitext
+  config: wikitext-103-raw-v1
+  split: validation
+  sequence_length: 1024
+  stride: 1024
+  batch_size: 1
+  max_tokens: 65536
+  document_separator: "\n\n"
+  drop_incomplete_final_sequence: true
+
+# Phase 4/5 held-out final evaluation data.
+evaluation_dataset:
+  name: Salesforce/wikitext
+  config: wikitext-103-raw-v1
+  split: test
+  sequence_length: 1024
+  stride: 1024
+  batch_size: 1
+  max_tokens: 65536
+  document_separator: "\n\n"
+  drop_incomplete_final_sequence: true
+
+hardware:
+  num_tiles: 72
+  tiers_per_tile: 8
+  tier_shape:
+    rows: 512
+    cols: 512
+  num_thermal_zones: 8
+
+# Single analog contract shared by Phase 1 and hybrid quality evaluation.
+analog:
+  clip_sigma: 2.5
+  range_mode: peak_to_peak
+  reference_noise_std: 0.023
+  tile_size: 512
+  adc_dac_bits: 8
+  output_bound: 12.0
+  weight_scaling_omega: 1.0
+  weight_scaling_columnwise: false
+
+phase1:
+  output_root: data/results/phase1_sensitivity
+  results_filename_prefix: gpt2_hybrid_sensitivity
+
+profiling:
+  # Include the tied LM head as a candidate so its sensitivity/cost can be
+  # measured. The default feasible operating points keep it digital because
+  # it is large and shares weights with the token embedding.
+  include_lm_head: true
+  num_seeds: 5
+  seed_stride: 1
+  profile_blocks: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+  antithetic: true
+  sensitivity_field: delta_nll_noise_mean
+  sensitivity_unit: delta_nll_noise
+
+# Phase 1.5: fixed offline digital-protection selection.
+digital_selection:
+  output_root: data/results/phase1_5_digital_selection
+
+  # The LM head is a default digital anchor for generated budget sweeps. Named
+  # explicit sets below still allow the LM head to be tested as analog.
+  forced_digital: [lm_head]
+  methods:
+    - sensitivity_rank
+    - sensitivity_per_parameter
+    - sensitivity_per_mac
+  budgets:
+    projection_counts: [1, 2, 4, 8]
+    parameter_fractions: [0.05, 0.10, 0.20, 0.40]
+    mac_fractions: [0.05, 0.10, 0.20, 0.40]
+
+  # Optional expensive selector. Run select_greedy_marginal.py separately;
+  # it is not part of the default pipeline.
+  greedy_marginal:
+    forced_digital: [lm_head]
+    cost_field: macs_per_token
+    candidate_pool_size: 12
+    max_promotions: 4
+
+  explicit_sets:
+    # Diagnostic full-candidate point. On the default 72x8 substrate this is
+    # retained as capacity-infeasible; use the 96x8 LM-head ablation config to
+    # evaluate it rather than silently enlarging the default hardware.
+    all_profiled_candidates_analog: []
+    # The current-repository baseline: all transformer projections analog,
+    # embeddings and tied LM head digital.
+    transformer_all_analog:
+      - lm_head
+    # The first hybrid operating point confirmed by the user's experiment.
+    protect_block0_attention_output:
+      - lm_head
+      - block_0/attn.c_proj
+    # Isolates the LM-head choice. This may be capacity-infeasible on 72x8 and
+    # is retained in the artifact with capacity_feasible=false rather than
+    # silently changing the hardware geometry.
+    block0_digital_lm_head_analog:
+      - block_0/attn.c_proj
+    protect_block0_attention_pair:
+      - lm_head
+      - block_0/attn.c_proj
+      - block_0/attn.c_attn
+
+phase2:
+  name: mixed_72x8
+  output_root: data/results/phase2_fidelity/fidelity_traces
+  fidelity_model:
+    num_timesteps: 120
+    reference_noise_std: 0.023
+    min_noise_std: 0.005
+    max_noise_std: 0.080
+    fidelity_classes:
+      high:
+        fraction: 0.25
+        noise_multiplier_range: [0.65, 0.85]
+      medium:
+        fraction: 0.50
+        noise_multiplier_range: [0.90, 1.15]
+      low:
+        fraction: 0.25
+        noise_multiplier_range: [1.35, 1.70]
+    degradation:
+      gradual_drift:
+        enabled: true
+        total_increase_range: [0.12, 0.35]
+      thermal_variation:
+        enabled: true
+        correlation: 0.94
+        standard_deviation_fraction: 0.05
+      localized_fault:
+        enabled: true
+        num_affected_tiles: 6
+        onset_timestep_range: [35, 90]
+        noise_increase_range: [0.25, 0.70]
+        candidate_classes: [high, medium, low]
+        make_unavailable: false
+
+phase3:
+  # Negative Monte-Carlo sensitivity estimates are treated as zero importance
+  # for physical placement; raw Phase-1 values remain preserved in the profile.
+  sensitivity_floor: 0.0
+  output_root: data/results/phase3_static_mapping
+  mapping_timestep: 0
+  policies:
+    - random
+    - sequential
+    - hardware_only
+    - static_sensitivity
+
+phase4:
+  output_root: data/results/phase4_hybrid_quality
+  policies:
+    - random
+    - sequential
+    - hardware_only
+    - static_sensitivity
+  # Empty/null chooses initial, pre-fault, first-fault, midpoint, and final.
+  timesteps: null
+  num_realizations: 5
+  antithetic: false
+  unavailable_noise_std: 0.080
+
+  # Default full run evaluates named research operating points. Remove this
+  # filter for complete cost-budget sweeps after the pipeline is validated.
+  evaluate_budget_types: [explicit]
+  evaluate_selection_methods: []
+  max_operating_points: 4
+
+phase5:
+  output_root: data/results/phase5_adaptive
+  check_interval: 5
+  cooldown_timesteps: 10
+  minimum_relative_proxy_improvement: 0.02
+  migration_penalty_per_moved_weight_fraction: 0.05
+  max_moved_weight_fraction: 1.0
+  unavailable_noise_std: 0.080
+
+  evaluate_budget_types: [explicit]
+  evaluate_selection_methods: []
+  max_operating_points: 4
+
+  quality_timesteps: null
+  quality_num_realizations: 5
+  quality_antithetic: false

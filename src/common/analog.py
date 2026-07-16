@@ -1,4 +1,10 @@
-"""AIHWKit configuration and exact logical-weight I/O shared by Phases 1/4."""
+"""AIHWKit configuration and exact logical-weight I/O shared by hybrid phases.
+
+The AIHWKit imports are intentionally local so dependency-light structural tests
+can run without installing the simulator. The implementation of exact mapped-
+tile writes mirrors the validated current repository path and preserves clean
+AIHWKit mapping scales when logical noisy weights are installed.
+"""
 from __future__ import annotations
 
 import math
@@ -7,19 +13,7 @@ from typing import Any
 import torch
 from torch import Tensor
 
-from aihwkit.inference.noise.pcm import PCMLikeNoiseModel
-from aihwkit.nn.modules.linear_mapped import AnalogLinearMapped
-from aihwkit.simulator.configs import InferenceRPUConfig
-from aihwkit.simulator.configs.utils import MappingParameter, WeightClipParameter
-from aihwkit.simulator.parameters.enums import (
-    BoundManagementType,
-    NoiseManagementType,
-    WeightClipType,
-    WeightNoiseType,
-)
-
-# Re-export the AIHWKit-independent shared weight pipeline for compatibility.
-from src.common.manual_weights import (  # noqa: F401
+from src.common.manual_weights import (  # re-export
     ManualAnalogSettings,
     PreparedProjection,
     ProjectionPreprocessing,
@@ -32,8 +26,21 @@ from src.common.manual_weights import (  # noqa: F401
 )
 
 
-def make_rpu_config(settings: ManualAnalogSettings) -> InferenceRPUConfig:
+def make_rpu_config(settings: ManualAnalogSettings) -> Any:
     settings.validate()
+    try:
+        from aihwkit.inference.noise.pcm import PCMLikeNoiseModel
+        from aihwkit.simulator.configs import InferenceRPUConfig
+        from aihwkit.simulator.configs.utils import MappingParameter, WeightClipParameter
+        from aihwkit.simulator.parameters.enums import (
+            BoundManagementType,
+            NoiseManagementType,
+            WeightClipType,
+            WeightNoiseType,
+        )
+    except ImportError as exc:
+        raise RuntimeError("AIHWKit 1.1.0 is required for analog execution.") from exc
+
     resolution = 1.0 / float(2**settings.adc_dac_bits - 2)
     rpu_config = InferenceRPUConfig()
     rpu_config.clip = WeightClipParameter(type=WeightClipType.NONE)
@@ -111,9 +118,7 @@ def analog_configuration(settings: ManualAnalogSettings) -> dict[str, Any]:
     }
 
 
-def get_analog_weights_exact(
-    module: AnalogLinearMapped,
-) -> tuple[Tensor, Tensor | None]:
+def get_analog_weights_exact(module: Any) -> tuple[Tensor, Tensor | None]:
     weight, bias = module.get_weights(
         apply_weight_scaling=True,
         realistic=False,
@@ -124,7 +129,7 @@ def get_analog_weights_exact(
 
 
 def set_analog_weights_exact(
-    module: AnalogLinearMapped,
+    module: Any,
     canonical_weight: Tensor,
     bias: Tensor | None,
     *,

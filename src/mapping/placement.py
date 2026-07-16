@@ -1,8 +1,8 @@
-"""Physical 3D-CIM slot assignment policies."""
+"""Static and dynamic capacity-aware shard placement policies."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from typing import Any, Iterable, Mapping
+from dataclasses import dataclass, asdict
+from typing import Any, Iterable, Sequence
 
 import numpy as np
 
@@ -18,144 +18,98 @@ class PhysicalSlot:
 
 
 @dataclass(frozen=True)
-class Assignment:
+class PlacementRecord:
     policy: str
-    shard: ProjectionShard
+    timestep: int
+    shard_id: str
+    projection_id: str
+    shard_index: int
+    row_start: int
+    row_end: int
+    col_start: int
+    col_end: int
+    weight_count: int
+    shard_weight: float
+    sensitivity: float
+    importance: float
     tile_id: int
     tier_id: int
-    mapping_timestep: int
-    tile_noise_std_at_mapping: float
+    tile_noise_std: float
 
     def to_dict(self) -> dict[str, Any]:
-        row = self.shard.to_dict()
-        row.update(
-            {
-                "policy": self.policy,
-                "tile_id": self.tile_id,
-                "tier_id": self.tier_id,
-                "mapping_timestep": self.mapping_timestep,
-                "tile_noise_std_at_mapping": self.tile_noise_std_at_mapping,
-            }
-        )
-        return row
+        return asdict(self)
 
 
-def build_slots(
-    noise_std: np.ndarray,
-    available: np.ndarray,
-    tiers_per_tile: int,
-) -> list[PhysicalSlot]:
-    if noise_std.ndim != 1 or available.ndim != 1 or noise_std.shape != available.shape:
-        raise ValueError("noise_std and available must be equal-length 1-D arrays.")
-    if tiers_per_tile <= 0:
-        raise ValueError("tiers_per_tile must be positive.")
-    slots = []
-    for tile_id in range(noise_std.size):
+def build_slots(noise: Sequence[float], available: Sequence[bool], tiers_per_tile: int) -> list[PhysicalSlot]:
+    slots: list[PhysicalSlot] = []
+    for tile_id, (tile_noise, is_available) in enumerate(zip(noise, available)):
+        if not bool(is_available):
+            continue
         for tier_id in range(tiers_per_tile):
-            slots.append(
-                PhysicalSlot(
-                    tile_id=tile_id,
-                    tier_id=tier_id,
-                    noise_std=float(noise_std[tile_id]),
-                    available=bool(available[tile_id]),
-                )
-            )
+            slots.append(PhysicalSlot(tile_id, tier_id, float(tile_noise), True))
     return slots
 
 
-def _canonical_shards(shards: Iterable[ProjectionShard]) -> list[ProjectionShard]:
-    return sorted(
-        shards,
-        key=lambda shard: (
-            shard.block_index,
-            shard.projection_id,
-            shard.out_start,
-            shard.in_start,
-            shard.shard_id,
-        ),
-    )
-
-
-def _available_slots(slots: Iterable[PhysicalSlot]) -> list[PhysicalSlot]:
-    return [slot for slot in slots if slot.available]
-
-
-def assign_policy(
-    policy: str,
+def place_shards(
     shards: Iterable[ProjectionShard],
-    slots: Iterable[PhysicalSlot],
     *,
+    noise: Sequence[float],
+    available: Sequence[bool],
+    tiers_per_tile: int,
+    policy: str,
+    timestep: int,
     seed: int,
-    mapping_timestep: int,
-) -> list[Assignment]:
-    shard_list = _canonical_shards(shards)
-    slot_list = _available_slots(slots)
-    if len(slot_list) < len(shard_list):
-        raise RuntimeError(
-            f"Only {len(slot_list)} available physical tiers for "
-            f"{len(shard_list)} shards."
-        )
-
-    canonical_slots = sorted(slot_list, key=lambda slot: (slot.tile_id, slot.tier_id))
-    if policy == "sequential":
-        ordered_shards = shard_list
-        ordered_slots = canonical_slots
-    elif policy == "random":
-        rng = np.random.default_rng(int(seed))
-        ordered_shards = shard_list
-        indices = rng.permutation(len(canonical_slots))
-        ordered_slots = [canonical_slots[int(index)] for index in indices]
+) -> list[PlacementRecord]:
+    shard_list = list(shards)
+    slots = build_slots(noise, available, tiers_per_tile)
+    if len(shard_list) > len(slots):
+        raise ValueError(f"Analog set requires {len(shard_list)} tiers but only {len(slots)} are available.")
+    if policy == "random":
+        rng = np.random.default_rng(seed)
+        rng.shuffle(slots)
+        ordered_shards = list(shard_list)
+    elif policy == "sequential":
+        slots.sort(key=lambda slot: (slot.tile_id, slot.tier_id))
+        ordered_shards = list(shard_list)
     elif policy == "hardware_only":
-        ordered_shards = shard_list
-        ordered_slots = sorted(
-            canonical_slots,
-            key=lambda slot: (slot.noise_std**2, slot.tile_id, slot.tier_id),
-        )
-    elif policy == "static_sensitivity":
-        # Rearrangement-optimal assignment for the separable Phase-3 proxy:
-        # descending shard importance paired with ascending tile variance.
-        ordered_shards = sorted(
-            shard_list,
-            key=lambda shard: (
-                -shard.importance,
-                -shard.sensitivity,
-                shard.block_index,
-                shard.projection_id,
-                shard.out_start,
-                shard.in_start,
-            ),
-        )
-        ordered_slots = sorted(
-            canonical_slots,
-            key=lambda slot: (slot.noise_std**2, slot.tile_id, slot.tier_id),
-        )
+        slots.sort(key=lambda slot: (slot.noise_std, slot.tile_id, slot.tier_id))
+        ordered_shards = list(shard_list)
+    elif policy in {"static_sensitivity", "adaptive_sensitivity"}:
+        slots.sort(key=lambda slot: (slot.noise_std, slot.tile_id, slot.tier_id))
+        ordered_shards = sorted(shard_list, key=lambda shard: (-shard.importance, shard.shard_id))
     else:
-        raise ValueError(f"Unsupported placement policy: {policy!r}")
-
-    assignments = [
-        Assignment(
-            policy=policy,
-            shard=shard,
-            tile_id=slot.tile_id,
-            tier_id=slot.tier_id,
-            mapping_timestep=int(mapping_timestep),
-            tile_noise_std_at_mapping=slot.noise_std,
+        raise ValueError(f"Unknown placement policy: {policy}")
+    records: list[PlacementRecord] = []
+    for shard, slot in zip(ordered_shards, slots):
+        records.append(
+            PlacementRecord(
+                policy=policy,
+                timestep=int(timestep),
+                shard_id=shard.shard_id,
+                projection_id=shard.projection_id,
+                shard_index=shard.shard_index,
+                row_start=shard.row_start,
+                row_end=shard.row_end,
+                col_start=shard.col_start,
+                col_end=shard.col_end,
+                weight_count=shard.weight_count,
+                shard_weight=shard.shard_weight,
+                sensitivity=shard.sensitivity,
+                importance=shard.importance,
+                tile_id=slot.tile_id,
+                tier_id=slot.tier_id,
+                tile_noise_std=slot.noise_std,
+            )
         )
-        for shard, slot in zip(ordered_shards, ordered_slots)
-    ]
-    validate_assignments(assignments, shard_list)
-    return assignments
+    validate_placement(records, len(shard_list))
+    return records
 
 
-def validate_assignments(
-    assignments: Iterable[Assignment],
-    expected_shards: Iterable[ProjectionShard],
-) -> None:
-    rows = list(assignments)
-    expected_ids = {shard.shard_id for shard in expected_shards}
-    actual_ids = [row.shard.shard_id for row in rows]
-    if len(actual_ids) != len(expected_ids) or set(actual_ids) != expected_ids:
-        raise RuntimeError("Placement does not cover every shard exactly once.")
-    slots = [(row.tile_id, row.tier_id) for row in rows]
-    if len(slots) != len(set(slots)):
-        raise RuntimeError("Placement assigns more than one shard to a physical tier.")
+def validate_placement(records: Iterable[PlacementRecord], expected_shards: int | None = None) -> None:
+    rows = list(records)
+    if expected_shards is not None and len(rows) != expected_shards:
+        raise ValueError("Placement shard count mismatch.")
+    if len({row.shard_id for row in rows}) != len(rows):
+        raise ValueError("A shard was placed more than once.")
+    if len({(row.tile_id, row.tier_id) for row in rows}) != len(rows):
+        raise ValueError("A physical tier was reused.")

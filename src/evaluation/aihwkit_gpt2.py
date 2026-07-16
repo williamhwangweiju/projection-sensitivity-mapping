@@ -1,12 +1,11 @@
-"""All-projection AIHWKit conversion using the shared manual weight pipeline."""
+"""Hybrid GPT-2 conversion utilities for projection-selective analog execution."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from typing import Any, Mapping
+from dataclasses import dataclass
+import math
+from typing import Any, Iterable, Mapping
 
-import torch
 from torch import Tensor
-from aihwkit.nn.modules.linear_mapped import AnalogLinearMapped
 
 from src.common.analog import (
     ManualAnalogSettings,
@@ -14,7 +13,6 @@ from src.common.analog import (
     make_rpu_config,
     prepare_projection_weight,
     set_analog_weights_exact,
-    tensor_checksum,
 )
 from src.common.projections import (
     ProjectionHandle,
@@ -25,152 +23,199 @@ from src.common.projections import (
 
 
 @dataclass
-class AnalogProjectionReference:
-    projection_id: str
-    block_index: int
-    projection_name: str
-    hf_module_path: str
-    parent: Any
-    attribute: str
-    original_module: Any
-    analog_module: AnalogLinearMapped
+class AnalogProjectionState:
+    handle: ProjectionHandle
+    analog_module: Any
     clipped_weight: Tensor
     bias: Tensor | None
     preprocessing: dict[str, Any]
 
-    def restore_reference(self) -> None:
-        set_analog_weights_exact(
-            self.analog_module,
-            self.clipped_weight,
-            self.bias,
-            verify=False,
+    @property
+    def programmed_range(self) -> float:
+        return float(self.preprocessing["programmed_range"])
+
+    @property
+    def clipped_fraction(self) -> float:
+        return float(self.preprocessing["fraction_clipped"])
+
+
+def _phase1_map(rows: Iterable[Mapping[str, Any]] | None) -> dict[str, Mapping[str, Any]]:
+    return {} if rows is None else {str(row["projection_id"]): row for row in rows}
+
+
+def _validate_phase1_preprocessing(
+    projection_id: str,
+    actual: Mapping[str, Any],
+    expected_row: Mapping[str, Any] | None,
+) -> None:
+    if expected_row is None:
+        return
+    expected = expected_row.get("preprocessing")
+    if not isinstance(expected, Mapping):
+        # Older profiles did not persist checksums. Their numeric metadata can
+        # still be used, but strict cross-phase checksum validation is unavailable.
+        return
+    for field in ("original_checksum", "clipped_checksum", "range_mode"):
+        if str(expected[field]) != str(actual[field]):
+            raise ValueError(
+                f"{projection_id}: Phase-1/hybrid preprocessing mismatch for {field}."
+            )
+    for field in ("original_std", "clip_threshold", "programmed_range"):
+        wanted = float(expected[field])
+        observed = float(actual[field])
+        if not math.isclose(wanted, observed, rel_tol=1e-6, abs_tol=1e-9):
+            raise ValueError(
+                f"{projection_id}: Phase-1/hybrid {field} mismatch: "
+                f"{wanted} vs {observed}."
+            )
+
+
+class HybridAnalogModel:
+    """Convert only the analog projection set while protected projections stay digital."""
+
+    def __init__(
+        self,
+        model: Any,
+        *,
+        digital_projection_ids: Iterable[str],
+        settings: ManualAnalogSettings,
+        include_lm_head_candidate: bool,
+        phase1_projection_rows: Iterable[Mapping[str, Any]] | None = None,
+    ) -> None:
+        self.model = model
+        self.settings = settings
+        self.digital_projection_ids = frozenset(digital_projection_ids)
+        self.include_lm_head_candidate = include_lm_head_candidate
+        self.phase1_by_id = _phase1_map(phase1_projection_rows)
+        self.states: dict[str, AnalogProjectionState] = {}
+        self.original_modules: dict[str, Any] = {}
+
+    def convert(self) -> "HybridAnalogModel":
+        try:
+            from aihwkit.nn.modules.linear_mapped import AnalogLinearMapped
+        except ImportError as exc:
+            raise RuntimeError(
+                "AIHWKit 1.1.0 is required for Phase 1/4/5 quality runs."
+            ) from exc
+
+        device = next(self.model.parameters()).device
+        handles = list(
+            iter_gpt2_projections(
+                self.model, include_lm_head=self.include_lm_head_candidate
+            )
         )
+        known_model_ids = {handle.projection_id for handle in handles}
+
+        # The Phase-1 artifact is the authoritative candidate universe. This is
+        # essential for reduced smoke profiles: projections that were not
+        # profiled are left digital rather than being analogized without a
+        # sensitivity score or a Phase-3 physical placement. Full paper runs
+        # profile all 48 transformer projections plus the optional LM head.
+        candidate_ids = (
+            set(self.phase1_by_id) if self.phase1_by_id else set(known_model_ids)
+        )
+        unknown_candidates = candidate_ids - known_model_ids
+        if unknown_candidates:
+            raise ValueError(
+                "Phase-1 artifact contains projections absent from this model: "
+                f"{sorted(unknown_candidates)}"
+            )
+        unknown_digital = set(self.digital_projection_ids) - candidate_ids
+        if unknown_digital:
+            raise ValueError(
+                "Digital set contains projections outside the Phase-1 candidate "
+                f"universe: {sorted(unknown_digital)}"
+            )
+
+        for handle in handles:
+            if (
+                handle.projection_id not in candidate_ids
+                or handle.projection_id in self.digital_projection_ids
+            ):
+                continue
+            original_weight, bias = canonical_weight_bias(handle.module)
+            prepared = prepare_projection_weight(original_weight, self.settings)
+            preprocessing = prepared.preprocessing.to_dict()
+            _validate_phase1_preprocessing(
+                handle.projection_id,
+                preprocessing,
+                self.phase1_by_id.get(handle.projection_id),
+            )
+            digital_linear = linear_from_canonical(
+                prepared.clipped_weight, bias, device
+            )
+            analog = AnalogLinearMapped.from_digital(
+                digital_linear, rpu_config=make_rpu_config(self.settings)
+            ).to(device)
+            analog.eval()
+            # The validated current-repository path writes logical weights
+            # directly into mapped tiles while preserving mapping scales.
+            set_analog_weights_exact(
+                analog,
+                prepared.clipped_weight,
+                bias,
+                verify=True,
+            )
+            self.original_modules[handle.projection_id] = handle.module
+            setattr(handle.parent, handle.attribute, analog)
+            self.states[handle.projection_id] = AnalogProjectionState(
+                handle=handle,
+                analog_module=analog,
+                clipped_weight=prepared.clipped_weight,
+                bias=bias,
+                preprocessing=preprocessing,
+            )
+        return self
+
+    @property
+    def analog_projection_ids(self) -> tuple[str, ...]:
+        return tuple(self.states)
+
+    def restore_nominal_weights(self) -> None:
+        for state in self.states.values():
+            set_analog_weights_exact(
+                state.analog_module,
+                state.clipped_weight,
+                state.bias,
+                verify=False,
+            )
+
+    def snapshot_weights(self) -> dict[str, Tensor]:
+        return {
+            projection_id: get_analog_weights_exact(state.analog_module)[0].clone()
+            for projection_id, state in self.states.items()
+        }
+
+    def assert_nominal_restored(self, atol: float = 3e-6) -> None:
+        for projection_id, state in self.states.items():
+            actual, _ = get_analog_weights_exact(state.analog_module)
+            error = float((actual - state.clipped_weight).abs().max().item())
+            if error > atol:
+                raise RuntimeError(
+                    f"{projection_id} was not restored exactly; max error={error:.3e}."
+                )
+
+    def restore_digital_modules(self) -> None:
+        for projection_id, original in self.original_modules.items():
+            state = self.states[projection_id]
+            setattr(state.handle.parent, state.handle.attribute, original)
+        self.states.clear()
+        self.original_modules.clear()
 
     def metadata(self) -> dict[str, Any]:
         return {
-            "projection_id": self.projection_id,
-            "block_index": self.block_index,
-            "projection_name": self.projection_name,
-            "hf_module_path": self.hf_module_path,
-            "weight_shape_out_in": list(self.clipped_weight.shape),
-            "preprocessing": self.preprocessing,
+            "digital_projection_ids": sorted(self.digital_projection_ids),
+            "analog_projection_ids": sorted(self.states),
+            "analog_projection_count": len(self.states),
+            "preprocessing_by_projection": {
+                key: value.preprocessing for key, value in self.states.items()
+            },
         }
 
 
-def _phase1_projection_map(phase1_payload: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
-    results = phase1_payload.get("results", phase1_payload)
-    records = results.get("projections")
-    if not isinstance(records, list):
-        raise ValueError("Phase-1 payload does not contain results.projections.")
-    return {str(record["projection_id"]): record for record in records}
-
-
-def convert_all_transformer_projections(
-    model: Any,
-    config: Mapping[str, Any],
-    phase1_payload: Mapping[str, Any],
-) -> dict[str, AnalogProjectionReference]:
-    """Replace all 48 GPT-2 projections by identical clipped AIHWKit layers."""
-    device = torch.device(str(config["model"]["device"]))
-    settings = ManualAnalogSettings.from_config(config)
-    phase1_map = _phase1_projection_map(phase1_payload)
-    references: dict[str, AnalogProjectionReference] = {}
-
-    handles = list(iter_gpt2_projections(model))
-    if len(handles) != 48:
-        raise RuntimeError(f"Expected 48 GPT-2 transformer projections, found {len(handles)}.")
-
-    for handle in handles:
-        original_weight, bias = canonical_weight_bias(handle.module)
-        prepared = prepare_projection_weight(original_weight, settings)
-        phase1_record = phase1_map.get(handle.projection_id)
-        if phase1_record is None:
-            raise ValueError(f"Phase-1 result is missing {handle.projection_id}.")
-        phase1_preprocessing = phase1_record.get("preprocessing")
-        if not isinstance(phase1_preprocessing, Mapping):
-            raise ValueError(f"Phase-1 preprocessing is missing for {handle.projection_id}.")
-        for field in ("original_checksum", "clipped_checksum", "range_mode"):
-            if str(phase1_preprocessing[field]) != str(
-                getattr(prepared.preprocessing, field)
-            ):
-                raise ValueError(
-                    f"{handle.projection_id}: Phase-1/Phase-4 preprocessing mismatch "
-                    f"for {field}."
-                )
-        for field in ("clip_threshold", "programmed_range", "original_std"):
-            expected = float(phase1_preprocessing[field])
-            actual = float(getattr(prepared.preprocessing, field))
-            if abs(expected - actual) > max(1e-9, abs(expected) * 1e-6):
-                raise ValueError(
-                    f"{handle.projection_id}: Phase-1/Phase-4 {field} mismatch: "
-                    f"{expected} vs {actual}."
-                )
-
-        digital_linear = linear_from_canonical(prepared.clipped_weight, bias, device)
-        analog = AnalogLinearMapped.from_digital(
-            digital_linear,
-            rpu_config=make_rpu_config(settings),
-        ).to(device)
-        analog.eval()
-        readback, _ = get_analog_weights_exact(analog)
-        max_error = float((readback - prepared.clipped_weight).abs().max().item())
-        if max_error > 3e-6:
-            raise RuntimeError(
-                f"{handle.projection_id}: clean clipped conversion changed logical "
-                f"weights; max_error={max_error:.8e}."
-            )
-        setattr(handle.parent, handle.attribute, analog)
-        references[handle.projection_id] = AnalogProjectionReference(
-            projection_id=handle.projection_id,
-            block_index=handle.block_index,
-            projection_name=handle.projection_name,
-            hf_module_path=handle.hf_module_path,
-            parent=handle.parent,
-            attribute=handle.attribute,
-            original_module=handle.module,
-            analog_module=analog,
-            clipped_weight=prepared.clipped_weight,
-            bias=bias,
-            preprocessing=prepared.preprocessing.to_dict(),
-        )
-
-    if set(references) != set(phase1_map):
-        extra = sorted(set(phase1_map) - set(references))
-        if extra:
-            raise ValueError(f"Phase-1 payload contains unexpected projections: {extra}")
-    return references
-
-
-def restore_all_references(
-    references: Mapping[str, AnalogProjectionReference],
-) -> None:
-    for reference in references.values():
-        reference.restore_reference()
-
-
-def restore_original_digital_modules(
-    references: Mapping[str, AnalogProjectionReference],
-) -> None:
-    for reference in references.values():
-        setattr(reference.parent, reference.attribute, reference.original_module)
-
-
-def reference_checksums(
-    references: Mapping[str, AnalogProjectionReference],
-) -> list[dict[str, Any]]:
-    rows = []
-    for reference in references.values():
-        actual, _ = get_analog_weights_exact(reference.analog_module)
-        rows.append(
-            {
-                "projection_id": reference.projection_id,
-                "expected_clipped_checksum": reference.preprocessing[
-                    "clipped_checksum"
-                ],
-                "actual_logical_checksum": tensor_checksum(actual),
-                "max_reference_error": float(
-                    (actual - reference.clipped_weight).abs().max().item()
-                ),
-            }
-        )
-    return rows
+__all__ = [
+    "AnalogProjectionState",
+    "HybridAnalogModel",
+    "get_analog_weights_exact",
+    "set_analog_weights_exact",
+]

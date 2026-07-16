@@ -101,10 +101,10 @@ def set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(torch_seed)
 
 
-def projection_noise_seed(realization_seed: int, projection_id: str) -> int:
+def projection_noise_seed(realization_seed: int, projection_id: str, realization_offset: int = 0) -> int:
     digest = hashlib.sha256(projection_id.encode("utf-8")).digest()
     offset = int.from_bytes(digest[:8], byteorder="little", signed=False)
-    return int((int(realization_seed) + offset) % (2**63 - 1))
+    return int((int(realization_seed) + int(realization_offset) + offset) % (2**63 - 1))
 
 
 def prepare_projection_weight(

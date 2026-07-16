@@ -1,45 +1,42 @@
 #!/usr/bin/env python3
-"""Export a compact Phase-1 sensitivity ranking CSV."""
+"""Export Phase 1 ranking and cost-normalized sensitivity tables."""
 from __future__ import annotations
 
 import argparse
-import json
+import csv
 from pathlib import Path
+import sys
 
-import pandas as pd
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+from src.common.config import load_json
 
 
-def main(results_path: Path) -> Path:
-    payload = json.loads(results_path.read_text(encoding="utf-8"))
-    records = payload["results"]["projections"]
-    columns = [
-        "projection_id",
-        "projection_label",
-        "sensitivity_score_for_mapping",
-        "sensitivity_score_unit",
-        "delta_nll_noise_mean",
-        "delta_nll_noise_std",
-        "delta_nll_noise_ci95_low",
-        "delta_nll_noise_ci95_high",
-        "delta_ppl_noise_mean",
-        "delta_ppl_total_mean",
-        "delta_nll_analog_reference",
-        "delta_ppl_analog_reference",
+def main(results_file: Path, output_dir: Path | None = None) -> Path:
+    payload = load_json(results_file)
+    rows = sorted(payload["projections"], key=lambda row: -float(row["sensitivity_score_for_mapping"]))
+    output_dir = output_dir or results_file.parent
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"{results_file.stem}_ranking.csv"
+    fields = [
+        "rank", "projection_id", "role", "sensitivity_score_for_mapping",
+        "delta_nll_analog_reference", "parameter_count", "macs_per_token",
+        "sensitivity_per_parameter", "sensitivity_per_mac", "clipped_fraction",
+        "tied_to_embedding",
     ]
-    frame = pd.DataFrame(records)
-    available = [column for column in columns if column in frame.columns]
-    frame = frame[available].sort_values(
-        "sensitivity_score_for_mapping", ascending=False
-    )
-    output = results_path.with_name(results_path.stem + "_ranking.csv")
-    frame.to_csv(output, index=False)
-    print(frame.to_string(index=False))
-    print(f"Ranking saved to: {output}")
-    return output
+    with output_path.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=fields)
+        writer.writeheader()
+        for rank, row in enumerate(rows, 1):
+            writer.writerow({"rank": rank, **{field: row.get(field) for field in fields if field != "rank"}})
+    print(f"Ranking saved to: {output_path}")
+    return output_path
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("results", type=Path)
+    parser.add_argument("--results-file", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path)
     args = parser.parse_args()
-    main(args.results)
+    main(args.results_file, args.output_dir)
