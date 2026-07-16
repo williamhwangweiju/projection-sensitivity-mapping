@@ -1,0 +1,120 @@
+# Fast structural/Colab smoke configuration. It preserves every cross-phase
+# contract but is not intended for paper results.
+experiment:
+  seed: 42
+  placement_seed: 42
+model:
+  name: gpt2
+  device: cpu
+dataset:
+  name: Salesforce/wikitext
+  config: wikitext-103-raw-v1
+  split: validation
+  sequence_length: 128
+  stride: 128
+  batch_size: 1
+  max_tokens: 1024
+  document_separator: "\n\n"
+  drop_incomplete_final_sequence: true
+evaluation_dataset:
+  name: Salesforce/wikitext
+  config: wikitext-103-raw-v1
+  split: test
+  sequence_length: 128
+  stride: 128
+  batch_size: 1
+  max_tokens: 1024
+  document_separator: "\n\n"
+  drop_incomplete_final_sequence: true
+hardware:
+  num_tiles: 72
+  tiers_per_tile: 8
+  tier_shape: {rows: 512, cols: 512}
+  num_thermal_zones: 8
+analog:
+  clip_sigma: 2.5
+  range_mode: peak_to_peak
+  reference_noise_std: 0.023
+  tile_size: 512
+  adc_dac_bits: 8
+  output_bound: 12.0
+  weight_scaling_omega: 1.0
+  weight_scaling_columnwise: false
+phase1:
+  output_root: data/smoke/phase1
+  results_filename_prefix: gpt2_hybrid_smoke
+profiling:
+  include_lm_head: false
+  num_seeds: 1
+  seed_stride: 1
+  profile_blocks: [0]
+  antithetic: false
+  sensitivity_field: delta_nll_noise_mean
+  sensitivity_unit: delta_nll_noise
+digital_selection:
+  output_root: data/smoke/phase1_5
+  forced_digital: []
+  # Keep the smoke test cheap; the full configuration enables measured search.
+  greedy_marginal:
+    enabled: false
+  methods: [sensitivity_rank]
+  budgets:
+    projection_counts: [0, 1]
+    parameter_fractions: []
+    mac_fractions: []
+  explicit_sets:
+    smoke_all_analog: []
+    smoke_protect_top: [block_0/attn.c_proj]
+phase2:
+  name: smoke_72x8
+  output_root: data/smoke/phase2
+  fidelity_model:
+    num_timesteps: 4
+    reference_noise_std: 0.023
+    min_noise_std: 0.005
+    max_noise_std: 0.080
+    fidelity_classes:
+      high: {fraction: 0.25, noise_multiplier_range: [0.65, 0.85]}
+      medium: {fraction: 0.50, noise_multiplier_range: [0.90, 1.15]}
+      low: {fraction: 0.25, noise_multiplier_range: [1.35, 1.70]}
+    degradation:
+      gradual_drift: {enabled: true, total_increase_range: [0.12, 0.35]}
+      thermal_variation: {enabled: true, correlation: 0.94, standard_deviation_fraction: 0.05}
+      localized_fault:
+        enabled: true
+        num_affected_tiles: 1
+        onset_timestep_range: [2, 2]
+        noise_increase_range: [0.25, 0.70]
+        candidate_classes: [high, medium, low]
+        make_unavailable: false
+phase3:
+  # Negative Monte-Carlo sensitivity estimates are treated as zero importance
+  # for physical placement; raw Phase-1 values remain preserved in the profile.
+  sensitivity_floor: 0.0
+  output_root: data/smoke/phase3
+  mapping_timestep: 0
+  policies: [random, sequential, hardware_only, static_sensitivity]
+phase4:
+  output_root: data/smoke/phase4
+  policies: [random, sequential, hardware_only, static_sensitivity]
+  timesteps: [0, 2, 3]
+  num_realizations: 1
+  antithetic: false
+  unavailable_noise_std: 0.080
+  evaluate_budget_types: [explicit]
+  evaluate_selection_methods: []
+  max_operating_points: 2
+phase5:
+  output_root: data/smoke/phase5
+  check_interval: 1
+  cooldown_timesteps: 1
+  minimum_relative_proxy_improvement: 0.0
+  migration_penalty_per_moved_weight_fraction: 0.0
+  max_moved_weight_fraction: 1.0
+  unavailable_noise_std: 0.080
+  evaluate_budget_types: [explicit]
+  evaluate_selection_methods: []
+  max_operating_points: 2
+  quality_timesteps: [0, 2, 3]
+  quality_num_realizations: 1
+  quality_antithetic: false

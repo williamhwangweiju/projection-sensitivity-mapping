@@ -18,6 +18,34 @@ def required(path: Path | None, label: str) -> Path:
     return path
 
 
+
+
+def run_digital_selection(config: Path, phase1: Path) -> Path:
+    """Generate automatic digital operating points from an existing Phase-1 profile."""
+    from experiments.phase1_5_digital_selection.select_digital_operating_points import (
+        main as run_selection,
+    )
+    from experiments.phase1_5_digital_selection.select_greedy_marginal import (
+        main as run_measured_greedy_selection,
+    )
+    from src.common.config import load_yaml, resolve_path
+
+    operating_points = run_selection(config, phase1)
+    pipeline_config = load_yaml(config)
+    greedy_cfg = pipeline_config.get("digital_selection", {}).get("greedy_marginal", {})
+    if bool(greedy_cfg.get("enabled", True)):
+        greedy_output = (
+            resolve_path(pipeline_config["digital_selection"]["output_root"])
+            / "greedy_marginal_points.json"
+        )
+        run_measured_greedy_selection(
+            config,
+            phase1,
+            greedy_output,
+            operating_points,
+        )
+    return operating_points
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, default=REPO_ROOT / "configs/full_pipeline/gpt2_hybrid_3dcim.yaml")
@@ -29,6 +57,14 @@ def main() -> None:
     for phase in (1, 2, 3, 4, 5):
         parser.add_argument(f"--skip-phase{phase}", action="store_true")
     parser.add_argument("--skip-adaptive-quality", action="store_true")
+    parser.add_argument(
+        "--reselect-digital",
+        action="store_true",
+        help=(
+            "Reuse --phase1-artifact but regenerate automatic Phase-1.5 digital "
+            "operating points instead of requiring --operating-points-artifact."
+        ),
+    )
     args = parser.parse_args()
 
     config = args.config.resolve()
@@ -37,7 +73,10 @@ def main() -> None:
 
     if args.skip_phase1:
         phase1 = required(args.phase1_artifact, "Phase 1")
-        operating_points = required(args.operating_points_artifact, "Phase 1.5")
+        if args.reselect_digital:
+            operating_points = run_digital_selection(config, phase1)
+        else:
+            operating_points = required(args.operating_points_artifact, "Phase 1.5")
     else:
         from experiments.phase1_sensitivity.run_aihwkit_profiling import (
             main as run_phase1,
@@ -45,13 +84,10 @@ def main() -> None:
         from experiments.phase1_sensitivity.analyze_results import (
             main as analyze_phase1,
         )
-        from experiments.phase1_5_digital_selection.select_digital_operating_points import (
-            main as run_selection,
-        )
 
         phase1 = run_phase1(config)
         analyze_phase1(phase1)
-        operating_points = run_selection(config, phase1)
+        operating_points = run_digital_selection(config, phase1)
 
     if args.skip_phase2:
         trace = required(args.trace_artifact, "Phase 2")
