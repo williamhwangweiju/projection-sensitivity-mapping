@@ -87,11 +87,18 @@ def tensor_checksum(tensor: Tensor) -> str:
 
 
 def set_seed(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
+    """Seed Python, NumPy, and PyTorch using backend-compatible ranges."""
+
+    raw_seed = int(seed)
+    torch_seed = raw_seed % (2**63 - 1)
+    numpy_seed = raw_seed % (2**32)
+
+    random.seed(torch_seed)
+    np.random.seed(numpy_seed)
+    torch.manual_seed(torch_seed)
+
     if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
+        torch.cuda.manual_seed_all(torch_seed)
 
 
 def projection_noise_seed(realization_seed: int, projection_id: str) -> int:
