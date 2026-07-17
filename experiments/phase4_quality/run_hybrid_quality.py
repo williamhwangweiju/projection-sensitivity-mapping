@@ -11,7 +11,7 @@ import math
 from pathlib import Path
 import sys
 from typing import Any, Iterable
-
+import gc
 import numpy as np
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -184,6 +184,27 @@ def main(
     points = [point for point in points if str(point["digital_set_id"]) in available_point_ids]
     if not points:
         raise ValueError("All selected Phase-4 operating points were capacity-infeasible or lacked placements.")
+
+    # Phase 4 validates only the final cumulative greedy operating point: all
+    # projections promoted by Phase 1.5 execute digitally, and every remaining
+    # candidate executes in analog. The four policies below therefore compare
+    # placements for one identical analog projection set.
+    final_point = max(
+        points,
+        key=lambda point: (
+            int(point["digital_projection_count"]),
+            float(point["digital_mac_fraction"]),
+            float(point["digital_parameter_fraction"]),
+        ),
+    )
+    points = [final_point]
+    print(
+        "Phase 4 final digital set: "
+        f"{final_point['digital_set_id']} | "
+        f"digital_projections={final_point['digital_projection_count']} | "
+        f"digital_mac_fraction={final_point['digital_mac_fraction']:.6f}"
+    )
+
     points_by_id = {point["digital_set_id"]: point for point in points}
     placement_paths = {
         (row["digital_set_id"], row["policy"]): Path(row["placement_path"])
@@ -317,6 +338,21 @@ def main(
                         )
         finally:
             hybrid.restore_digital_modules()
+            hybrid = None
+            gc.collect()
+
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
+
+            output_root = resolve_path(cfg["output_root"])
+            output_root.mkdir(parents=True, exist_ok=True)
+
+            write_csv(
+                output_root / "hybrid_quality_by_policy.partial.csv",
+                all_rows,
+            )
 
     output_root = resolve_path(cfg["output_root"])
     output_root.mkdir(parents=True, exist_ok=True)
@@ -354,7 +390,6 @@ def main(
     })
     print(f"Phase 4 complete: {metadata_path}")
     return metadata_path
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

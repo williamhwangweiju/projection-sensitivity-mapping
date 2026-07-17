@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import sys
 from typing import Any
+import gc
 
 import numpy as np
 import torch
@@ -148,7 +149,14 @@ def main(
                         f"NLL={row['nll']:.6f} DeltaNLL(total)={row['delta_nll_total']:.6f}"
                     )
         finally:
-            hybrid.restore_digital_modules()
+                hybrid.restore_digital_modules()
+                hybrid = None
+                gc.collect()
+
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                    torch.cuda.empty_cache()
+                    torch.cuda.ipc_collect()
 
     output_root = resolve_path(cfg["output_root"])
     quality_path = write_csv(output_root / "adaptive_quality.csv", rows)

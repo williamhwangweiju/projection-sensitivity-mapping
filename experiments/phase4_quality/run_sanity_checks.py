@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
+import gc
 from pathlib import Path
 import sys
 from typing import Any
@@ -130,7 +131,14 @@ def main(
         print(f"Hybrid quality sanity checks passed: {output_path}")
         return output_path
     finally:
-        hybrid.restore_digital_modules()
+            hybrid.restore_digital_modules()
+            hybrid = None
+            gc.collect()
+
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
 
 
 if __name__ == "__main__":
