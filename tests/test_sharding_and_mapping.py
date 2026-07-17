@@ -49,6 +49,41 @@ def test_all_policies_cover_same_shards():
         assert {record.shard_id for record in records} == expected
 
 
+def test_hardware_only_is_reproducible_and_seed_dependent():
+    shards = build_shards(profile_rows(), digital_projection_ids=["p_digital"], tier_rows=4, tier_cols=4)
+    noise = [0.01, 0.02, 0.04, 0.08]
+    available = [True] * 4
+    kwargs = dict(noise=noise, available=available, tiers_per_tile=2, policy="hardware_only", timestep=0)
+    first = place_shards(shards, seed=7, **kwargs)
+    second = place_shards(shards, seed=7, **kwargs)
+    assert [(r.shard_id, r.tile_id, r.tier_id) for r in first] == [
+        (r.shard_id, r.tile_id, r.tier_id) for r in second
+    ]
+    mappings = {
+        tuple((r.shard_id, r.tile_id, r.tier_id) for r in place_shards(shards, seed=s, **kwargs))
+        for s in range(6)
+    }
+    assert len(mappings) > 1
+
+
+def test_hardware_only_assignment_order_ignores_catalog_order():
+    # With the catalog order, the sensitive projection's shards would always
+    # occupy the quietest slots. Across seeds, the quietest slot must not be
+    # monopolized by the most sensitive projection.
+    shards = build_shards(profile_rows(), digital_projection_ids=["p_digital"], tier_rows=4, tier_cols=4)
+    noise = [0.01, 0.02, 0.04, 0.08]
+    available = [True] * 4
+    quietest_occupants = set()
+    for s in range(12):
+        records = place_shards(
+            shards, noise=noise, available=available, tiers_per_tile=2,
+            policy="hardware_only", timestep=0, seed=s,
+        )
+        best = min(records, key=lambda r: (r.tile_noise_std, r.tile_id, r.tier_id))
+        quietest_occupants.add(best.projection_id)
+    assert quietest_occupants != {"p_sensitive"}
+
+
 def test_fused_qkv_preserves_semantic_boundaries_and_matches_480_total():
     rows = []
     for block in range(12):

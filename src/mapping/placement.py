@@ -73,7 +73,12 @@ def place_shards(
         ordered_shards = list(shard_list)
     elif policy == "hardware_only":
         slots.sort(key=lambda slot: (slot.noise_std, slot.tile_id, slot.tier_id))
-        ordered_shards = list(shard_list)
+        # The catalog order enumerates block 0 first, which correlates with
+        # sensitivity and would make this baseline accidentally
+        # sensitivity-aware. A seeded permutation keeps the assignment order
+        # independent of shard importance while remaining reproducible.
+        permutation = np.random.default_rng(seed).permutation(len(shard_list))
+        ordered_shards = [shard_list[index] for index in permutation]
     elif policy in {"static_sensitivity", "adaptive_sensitivity"}:
         slots.sort(key=lambda slot: (slot.noise_std, slot.tile_id, slot.tier_id))
         ordered_shards = sorted(shard_list, key=lambda shard: (-shard.importance, shard.shard_id))

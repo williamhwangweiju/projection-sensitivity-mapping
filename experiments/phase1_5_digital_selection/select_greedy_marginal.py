@@ -30,31 +30,30 @@ from src.mapping.digital_selection import candidates_from_profile, operating_poi
 from src.mapping.sharding import count_projection_shards
 
 
-def evaluate_set(
+def build_search_hybrid(
     model: Any,
-    batches: list[dict[str, Any]],
-    device: Any,
     config: dict[str, Any],
-    digital: set[str],
+    forced: set[str],
     phase1_rows: list[dict[str, Any]],
-) -> tuple[float, float]:
-    """Measure nominal hybrid quality for one candidate digital set."""
+) -> Any:
+    """Convert the full analog candidate set exactly once.
+
+    Only the permanently-forced digital projections are excluded from
+    conversion. Every greedy trial is then realized by temporarily swapping
+    the candidate projections' original digital modules into the forward
+    graph (O(1) module swaps per trial) instead of rebuilding and
+    re-verifying the entire hybrid conversion for every candidate set.
+    """
     from src.common.analog import ManualAnalogSettings
     from src.evaluation.aihwkit_gpt2 import HybridAnalogModel
-    from src.evaluation.hybrid_quality import evaluate_nominal_hybrid
 
-    hybrid = HybridAnalogModel(
+    return HybridAnalogModel(
         model,
-        digital_projection_ids=digital,
+        digital_projection_ids=forced,
         settings=ManualAnalogSettings.from_config(config),
         include_lm_head_candidate=bool(config["profiling"].get("include_lm_head", False)),
         phase1_projection_rows=phase1_rows,
     ).convert()
-    try:
-        nll, ppl, _ = evaluate_nominal_hybrid(hybrid, batches, device)
-        return nll, ppl
-    finally:
-        hybrid.restore_digital_modules()
 
 
 def add_capacity(record: dict[str, Any], profile: dict[str, Any], config: dict[str, Any]) -> None:
@@ -212,150 +211,169 @@ def main(config_path: Path, phase1_path: Path, output_path: Path, append_to: Pat
     batches, dataset_metadata = build_causal_lm_batches(calibration, tokenizer)
     digital_nll, digital_ppl, predicted_tokens = evaluate_nll_ppl(model, batches, device)
 
-    selected = set(forced)
-    current_nll, current_ppl = evaluate_set(
-        model, batches, device, config, selected, profile["projections"]
-    )
-    records: list[dict[str, Any]] = []
+    hybrid = build_search_hybrid(model, config, forced, profile["projections"])
+    measured_cache: dict[frozenset[str], tuple[float, float]] = {}
 
-    def make_record(
-        *,
-        step: int,
-        promoted_projection_id: str | None,
-        gain: float,
-        utility: float,
-        nll: float,
-        ppl: float,
-        evaluated_candidates: int,
-    ) -> dict[str, Any]:
-        record = operating_point_record(
-            candidates,
-            method=f"greedy_measured_{objective}_per_{cost_field}",
-            budget_type="greedy_step",
-            budget_value=float(step),
-            digital_projection_ids=selected,
-        )
-        record.update(
-            {
-                "measured_nominal_nll": nll,
-                "measured_nominal_ppl": ppl,
-                "digital_reference_nll": digital_nll,
-                "digital_reference_ppl": digital_ppl,
-                "delta_nll_nominal_vs_digital": nll - digital_nll,
-                "marginal_nll_gain": gain,
-                "marginal_gain_per_cost": utility,
-                "promoted_projection_id": promoted_projection_id,
-                "evaluated_candidate_promotions": evaluated_candidates,
-                "selection_objective": objective,
-                "selection_cost_field": cost_field,
-            }
-        )
-        add_capacity(record, profile, config)
-        return record
+    def measure_digital_set(digital: set[str]) -> tuple[float, float]:
+        """Nominal hybrid NLL/PPL with the given projections executed digitally.
 
-    initial = make_record(
-        step=0,
-        promoted_projection_id=None,
-        gain=0.0,
-        utility=0.0,
-        nll=current_nll,
-        ppl=current_ppl,
-        evaluated_candidates=0,
-    )
-    records.append(initial)
-    print(
-        "step=0 digital=[] "
-        f"NLL={current_nll:.8f} delta_vs_digital={current_nll - digital_nll:.8f} "
-        f"capacity_feasible={initial['capacity_feasible']}"
-    )
+        A trial differs from the converted hybrid only in which modules sit in
+        the forward graph, so each measurement costs one evaluation pass plus
+        O(|digital|) module swaps. Nominal evaluation is deterministic for a
+        fixed digital set, so results are memoized.
+        """
+        key = frozenset(digital)
+        if key in measured_cache:
+            return measured_cache[key]
+        with hybrid.temporarily_digital(digital):
+            nll, ppl, _ = evaluate_nll_ppl(model, batches, device)
+        measured_cache[key] = (nll, ppl)
+        return nll, ppl
 
-    for step in range(1, max_promotions + 1):
-        current_record = records[-1]
-        target_met = (
-            target_delta is not None
-            and current_record["capacity_feasible"]
-            and float(current_record["delta_nll_nominal_vs_digital"]) <= target_delta
-        )
-        if target_met:
-            print(
-                f"Stopping: target delta NLL <= {target_delta:.8f} reached at step {step - 1}."
-            )
-            break
+    try:
+        selected = set(forced)
+        current_nll, current_ppl = measure_digital_set(selected)
+        records: list[dict[str, Any]] = []
 
-        trials: list[dict[str, Any]] = []
-        for candidate in pool:
-            if candidate.projection_id in selected:
-                continue
-            trial_set = selected | {candidate.projection_id}
-            cost_record = operating_point_record(
+        def make_record(
+            *,
+            step: int,
+            promoted_projection_id: str | None,
+            gain: float,
+            utility: float,
+            nll: float,
+            ppl: float,
+            evaluated_candidates: int,
+        ) -> dict[str, Any]:
+            record = operating_point_record(
                 candidates,
-                method="trial",
-                budget_type="trial",
+                method=f"greedy_measured_{objective}_per_{cost_field}",
+                budget_type="greedy_step",
                 budget_value=float(step),
-                digital_projection_ids=trial_set,
+                digital_projection_ids=selected,
             )
-            if float(cost_record["digital_mac_fraction"]) > max_mac_fraction:
-                continue
-            if float(cost_record["digital_parameter_fraction"]) > max_parameter_fraction:
-                continue
-
-            nll, ppl = evaluate_set(
-                model, batches, device, config, trial_set, profile["projections"]
-            )
-            gain = current_nll - nll
-            cost = float(getattr(candidate, cost_field))
-            utility = gain if objective == "nll_gain" else gain / max(cost, 1.0)
-            trials.append(
+            record.update(
                 {
-                    "projection_id": candidate.projection_id,
-                    "nll": nll,
-                    "ppl": ppl,
-                    "gain": gain,
-                    "utility": utility,
-                    "cost": cost,
+                    "measured_nominal_nll": nll,
+                    "measured_nominal_ppl": ppl,
+                    "digital_reference_nll": digital_nll,
+                    "digital_reference_ppl": digital_ppl,
+                    "delta_nll_nominal_vs_digital": nll - digital_nll,
+                    "marginal_nll_gain": gain,
+                    "marginal_gain_per_cost": utility,
+                    "promoted_projection_id": promoted_projection_id,
+                    "evaluated_candidate_promotions": evaluated_candidates,
+                    "selection_objective": objective,
+                    "selection_cost_field": cost_field,
                 }
             )
+            add_capacity(record, profile, config)
+            return record
 
-        if not trials:
-            print("Stopping: no remaining candidate satisfies the configured digital budget.")
-            break
-
-        best = max(
-            trials,
-            key=lambda item: (
-                float(item["utility"]),
-                float(item["gain"]),
-                -float(item["cost"]),
-                str(item["projection_id"]),
-            ),
-        )
-        if float(best["gain"]) <= minimum_gain:
-            print(
-                "Stopping: best measured promotion does not exceed "
-                f"minimum_marginal_nll_gain={minimum_gain:.8f}."
-            )
-            break
-
-        selected.add(str(best["projection_id"]))
-        current_nll = float(best["nll"])
-        current_ppl = float(best["ppl"])
-        record = make_record(
-            step=step,
-            promoted_projection_id=str(best["projection_id"]),
-            gain=float(best["gain"]),
-            utility=float(best["utility"]),
+        initial = make_record(
+            step=0,
+            promoted_projection_id=None,
+            gain=0.0,
+            utility=0.0,
             nll=current_nll,
             ppl=current_ppl,
-            evaluated_candidates=len(trials),
+            evaluated_candidates=0,
         )
-        records.append(record)
+        records.append(initial)
         print(
-            f"step={step} promoted={best['projection_id']} "
-            f"gain={best['gain']:.8f} NLL={current_nll:.8f} "
-            f"delta_vs_digital={current_nll - digital_nll:.8f} "
-            f"digital_mac_fraction={record['digital_mac_fraction']:.6f} "
-            f"capacity_feasible={record['capacity_feasible']}"
+            "step=0 digital=[] "
+            f"NLL={current_nll:.8f} delta_vs_digital={current_nll - digital_nll:.8f} "
+            f"capacity_feasible={initial['capacity_feasible']}"
         )
+
+        for step in range(1, max_promotions + 1):
+            current_record = records[-1]
+            target_met = (
+                target_delta is not None
+                and current_record["capacity_feasible"]
+                and float(current_record["delta_nll_nominal_vs_digital"]) <= target_delta
+            )
+            if target_met:
+                print(
+                    f"Stopping: target delta NLL <= {target_delta:.8f} reached at step {step - 1}."
+                )
+                break
+
+            trials: list[dict[str, Any]] = []
+            for candidate in pool:
+                if candidate.projection_id in selected:
+                    continue
+                trial_set = selected | {candidate.projection_id}
+                cost_record = operating_point_record(
+                    candidates,
+                    method="trial",
+                    budget_type="trial",
+                    budget_value=float(step),
+                    digital_projection_ids=trial_set,
+                )
+                if float(cost_record["digital_mac_fraction"]) > max_mac_fraction:
+                    continue
+                if float(cost_record["digital_parameter_fraction"]) > max_parameter_fraction:
+                    continue
+
+                nll, ppl = measure_digital_set(trial_set)
+                gain = current_nll - nll
+                cost = float(getattr(candidate, cost_field))
+                utility = gain if objective == "nll_gain" else gain / max(cost, 1.0)
+                trials.append(
+                    {
+                        "projection_id": candidate.projection_id,
+                        "nll": nll,
+                        "ppl": ppl,
+                        "gain": gain,
+                        "utility": utility,
+                        "cost": cost,
+                    }
+                )
+
+            if not trials:
+                print("Stopping: no remaining candidate satisfies the configured digital budget.")
+                break
+
+            best = max(
+                trials,
+                key=lambda item: (
+                    float(item["utility"]),
+                    float(item["gain"]),
+                    -float(item["cost"]),
+                    str(item["projection_id"]),
+                ),
+            )
+            if float(best["gain"]) <= minimum_gain:
+                print(
+                    "Stopping: best measured promotion does not exceed "
+                    f"minimum_marginal_nll_gain={minimum_gain:.8f}."
+                )
+                break
+
+            selected.add(str(best["projection_id"]))
+            current_nll = float(best["nll"])
+            current_ppl = float(best["ppl"])
+            record = make_record(
+                step=step,
+                promoted_projection_id=str(best["projection_id"]),
+                gain=float(best["gain"]),
+                utility=float(best["utility"]),
+                nll=current_nll,
+                ppl=current_ppl,
+                evaluated_candidates=len(trials),
+            )
+            records.append(record)
+            print(
+                f"step={step} promoted={best['projection_id']} "
+                f"gain={best['gain']:.8f} NLL={current_nll:.8f} "
+                f"delta_vs_digital={current_nll - digital_nll:.8f} "
+                f"digital_mac_fraction={record['digital_mac_fraction']:.6f} "
+                f"capacity_feasible={record['capacity_feasible']}"
+            )
+
+    finally:
+        hybrid.restore_digital_modules()
 
     feasible_records = [row for row in records if bool(row["capacity_feasible"])]
     target_records = (
