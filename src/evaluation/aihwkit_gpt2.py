@@ -265,7 +265,11 @@ class HybridAnalogModel:
     def assert_nominal_restored(self, atol: float = 3e-6) -> None:
         for projection_id, state in self.states.items():
             actual, _ = get_analog_weights_exact(state.analog_module)
-            error = float((actual - state.clipped_weight).abs().max().item())
+            expected = state.clipped_weight.to(
+                device=actual.device,
+                dtype=actual.dtype,
+            )
+            error = float((actual - expected).abs().max().item())
             if error > atol:
                 raise RuntimeError(
                     f"{projection_id} was not restored exactly; max error={error:.3e}."

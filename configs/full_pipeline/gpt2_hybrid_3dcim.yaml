@@ -92,7 +92,9 @@ digital_selection:
 
   # Intentionally empty. Every profiled projection, including lm_head, begins as
   # an analog candidate and must earn digital execution through measured gain.
-  forced_digital: []
+  forced_digital:
+    - lm_head
+  
 
   # Optional cheap ranking baselines can be added later. The default artifact is
   # populated by the measured greedy search below rather than named hard-coded sets.
@@ -105,7 +107,8 @@ digital_selection:
 
   greedy_marginal:
     enabled: true
-    forced_digital: []
+    forced_digital:
+      - lm_head
     # null means evaluate every remaining projection at every greedy step.
     candidate_pool_size: null
     max_promotions: 8
