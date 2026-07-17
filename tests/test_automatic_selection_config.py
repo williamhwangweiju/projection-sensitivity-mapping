@@ -45,5 +45,3 @@ def test_final_evaluation_consumes_automatic_greedy_points():
     expected = "greedy_measured_gain_per_cost_per_macs_per_token"
     assert config["phase4"]["evaluate_budget_types"] == ["greedy_step"]
     assert config["phase4"]["evaluate_selection_methods"] == [expected]
-    assert config["phase5"]["evaluate_budget_types"] == ["greedy_step"]
-    assert config["phase5"]["evaluate_selection_methods"] == [expected]

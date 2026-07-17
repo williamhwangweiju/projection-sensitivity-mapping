@@ -1,4 +1,8 @@
-# Fidelity-Aware Adaptive Projection Mapping for GPT-2 on 3D Analog CIM
+# Fidelity-Aware Projection Mapping for GPT-2 on 3D Analog CIM
+
+> **Scope note:** This project concludes at Phase 4. Adaptive remapping and the
+> end-to-end architectural / paper evaluation (formerly Phases 5 and 6) are out
+> of scope and are not implemented in this repository.
 
 ## Project Objective
 
@@ -8,10 +12,9 @@ The project combines:
 
 - GPT-2 projection-sensitivity profiling,
 - time-varying tile-fidelity simulation,
-- static and adaptive projection-to-tile mapping,
+- static projection-to-tile mapping,
 - tile-level weight-noise injection,
-- language-model quality evaluation,
-- architectural latency and energy evaluation.
+- language-model quality evaluation.
 
 The central hypothesis is that protecting noise-sensitive GPT-2 projections with higher-fidelity hardware preserves language-model quality better than hardware-only or sensitivity-unaware mapping.
 
@@ -242,7 +245,7 @@ faulted but operational tile
 unavailable tile
 ```
 
-An unavailable tile must not be represented only as a very large Gaussian noise value. Hard failure behavior is handled explicitly in Phases 4 and 5.
+An unavailable tile must not be represented only as a very large Gaussian noise value. Hard failure behavior is handled explicitly in Phase 4.
 
 ## Main Files
 
@@ -333,7 +336,7 @@ The hardware trace changes over time:
 sigma_i,t = time varying
 ```
 
-The placement must not be regenerated at every timestep. Recomputing the placement using current tile health would already be adaptive mapping and belongs in Phase 5.
+The placement must not be regenerated at every timestep. Recomputing the placement using current tile health would already be adaptive mapping, which is out of scope for this project (which ends at Phase 4).
 
 ## Sharding
 
@@ -966,10 +969,9 @@ For an unavailable tile, choose and document one explicit behavior:
 zero the affected shard output
 mark the placement infeasible
 use a digital fallback
-trigger remapping
 ```
 
-Adaptive remapping belongs in Phase 5.
+Adaptive remapping in response to failures is out of scope for this project (which ends at Phase 4).
 
 Phase 4 should not silently convert unavailable tiles into a very large Gaussian sigma.
 
@@ -1198,260 +1200,6 @@ Add optional AIHWKit shard-level validation.
 
 ---
 
-# Phase 5: Adaptive Fidelity-Aware Remapping
-
-**Status:** Future phase
-
-## Goal
-
-Develop a runtime mapper that updates projection placement as tile fidelity changes while balancing:
-
-- language-model quality,
-- latency,
-- energy,
-- remapping cost,
-- tile capacity,
-- unavailable hardware.
-
-Phase 4 evaluates fixed mappings. Phase 5 introduces adaptation.
-
-## Adaptive Mapping Trigger
-
-At timestep `t`, remapping may be triggered by:
-
-```text
-proxy degradation threshold
-predicted DeltaNLL threshold
-tile fault event
-tile unavailability
-change in tile ranking
-elapsed remapping interval
-```
-
-The trigger should include hysteresis or cooldown logic to prevent excessive remapping.
-
-## Adaptive Objective
-
-A general objective is:
-
-```text
-J_t =
-    lambda_q Q_t
-    + lambda_l Latency_t
-    + lambda_e Energy_t
-    + lambda_r RemapCost_t
-    + lambda_f FailurePenalty_t
-```
-
-where:
-
-```text
-Q_t = predicted quality degradation
-Latency_t = architecture latency
-Energy_t = architecture energy
-RemapCost_t = data movement and execution interruption
-FailurePenalty_t = penalty for invalid or unavailable placement
-```
-
-The quality term should use the Phase 4-calibrated proxy rather than the unvalidated Phase 3 proxy whenever possible.
-
-## Candidate Adaptive Policies
-
-### Periodic Remapping
-
-Recompute placement every fixed number of timesteps.
-
-### Threshold-Based Remapping
-
-Remap only when the predicted quality degradation exceeds a threshold.
-
-### Fault-Triggered Remapping
-
-Remap when a mapped tile becomes unavailable or severely degraded.
-
-### Greedy Incremental Remapping
-
-Move only the most valuable shards instead of rebuilding the complete placement.
-
-### Optimization-Based Remapping
-
-Solve a constrained assignment problem minimizing the complete adaptive objective.
-
-### Oracle Dynamic Mapping
-
-Recompute the globally best placement using full current tile information.
-
-This is an upper bound, not a deployable baseline.
-
-## Baselines
-
-```text
-static random
-static sequential
-static hardware-only
-static sensitivity-aware
-periodic adaptive
-fault-triggered adaptive
-incremental adaptive
-oracle dynamic sensitivity-aware
-```
-
-## Phase 5 Quality Evaluation
-
-At selected timesteps:
-
-1. Apply the adaptive placement.
-2. Use the Phase 4 bridge to materialize tile-level noise.
-3. Measure actual GPT-2 `DeltaNLL`, perplexity, KL divergence, and agreement.
-4. Compare quality gain against remapping overhead.
-
-AIHWKit does not need to run at every simulator timestep. It can be used at representative or decision-critical timesteps while the calibrated proxy is evaluated throughout the complete trace.
-
-## Main Files
-
-```text
-experiments/phase5_adaptive/run_adaptive_mapping.py
-experiments/phase5_adaptive/evaluate_adaptive_quality.py
-experiments/phase5_adaptive/analyze_adaptive_results.py
-
-src/mapping/adaptive_mapper.py
-src/mapping/remapping_trigger.py
-src/mapping/remapping_cost.py
-src/mapping/adaptive_objective.py
-```
-
-## Expected Outputs
-
-```text
-data/results/phase5_adaptive/<experiment>/
-├── adaptive_placement_trace.csv
-├── remapping_events.csv
-├── quality_trace.csv
-├── latency_trace.csv
-├── energy_trace.csv
-├── remapping_cost_trace.csv
-├── policy_summary.csv
-├── config.yaml
-└── metadata.json
-```
-
-## Completion Criteria
-
-- [ ] The mapper consumes the time-varying Phase 2 trace.
-- [ ] Static placements remain valid baselines.
-- [ ] Remapping triggers are configurable.
-- [ ] Hard tile unavailability can be recovered from.
-- [ ] Incremental and full-remapping costs are modeled.
-- [ ] The Phase 4-calibrated quality proxy is used.
-- [ ] Adaptive placements can be evaluated through the Phase 4 weight bridge.
-- [ ] Quality, latency, energy, and remapping overhead are reported jointly.
-- [ ] Adaptive mapping improves long-term quality or quality-efficiency over static policies.
-- [ ] Oracle dynamic mapping is reported only as an upper bound.
-
----
-
-# Phase 6: End-to-End Architectural Evaluation and Paper Analysis
-
-**Status:** Future phase
-
-## Goal
-
-Combine model-quality preservation with 3D-CIM architectural performance and produce the final evaluation required for publication.
-
-## Evaluation Dimensions
-
-### Model Quality
-
-```text
-negative log-likelihood
-perplexity
-KL divergence
-next-token agreement
-quality degradation over time
-```
-
-### Hardware Performance
-
-```text
-latency
-throughput
-energy
-energy-delay product
-tile utilization
-tier utilization
-```
-
-### Adaptation Cost
-
-```text
-number of remapping events
-weights moved
-data-movement energy
-remapping latency
-service interruption
-```
-
-### Robustness
-
-```text
-multiple sensitivity seeds
-multiple hardware-trace seeds
-multiple placement seeds
-multiple noise-realization seeds
-multiple fault patterns
-```
-
-## Main Research Questions
-
-1. Does projection sensitivity predict measured quality degradation under heterogeneous tile noise?
-2. Does static sensitivity-aware mapping preserve GPT-2 quality better than hardware-only mapping?
-3. How quickly does a static placement become stale as hardware fidelity changes?
-4. When does adaptive remapping provide enough quality benefit to justify its cost?
-5. Which trigger or objective provides the best quality-latency-energy-remapping trade-off?
-6. How robust are the conclusions across hardware traces and noise realizations?
-
-## Final Comparisons
-
-```text
-clean digital GPT-2
-uniform noisy mapping
-random static mapping
-sequential static mapping
-hardware-only static mapping
-sensitivity-aware static mapping
-adaptive fidelity-aware mapping
-oracle dynamic mapping
-```
-
-## Expected Final Figures
-
-```text
-projection sensitivity by block and projection
-tile fidelity over time
-static proxy by policy
-measured DeltaNLL and perplexity by policy
-proxy versus measured quality correlation
-quality over time
-remapping events over time
-quality versus remapping cost
-quality-latency-energy Pareto frontier
-```
-
-## Completion Criteria
-
-- [ ] Phase 1 sensitivity metadata is reproducible.
-- [ ] Phase 2 traces are reproducible.
-- [ ] Phase 3 static placements are reproducible.
-- [ ] Phase 4 quality validation is complete.
-- [ ] Phase 5 adaptive mapping is complete.
-- [ ] All comparisons use consistent seeds and datasets.
-- [ ] Statistical confidence intervals are reported.
-- [ ] Failure cases and negative results are documented.
-- [ ] Architectural and language-model metrics are analyzed jointly.
-- [ ] Final conclusions clearly separate measured results from proxy-based estimates.
-
----
-
 # End-to-End Experimental Flow
 
 ```text
@@ -1470,16 +1218,6 @@ Static projection-to-tile placements
 Phase 4
 Exact placement-to-weight bridge
 and measured GPT-2 quality
-        |
-        v
-Phase 5
-Adaptive remapping using
-Phase 4-calibrated quality estimates
-        |
-        v
-Phase 6
-Joint quality, latency, energy,
-and remapping-cost evaluation
 ```
 
 ---
@@ -1513,15 +1251,4 @@ E[quality_random]
 Phase 3 proxy
 positively correlates with
 measured DeltaNLL and KL divergence
-```
-
-## Adaptive Mapping Target
-
-Over a complete time-varying hardware trace:
-
-```text
-adaptive mapping improves
-quality preservation or quality-efficiency
-relative to static sensitivity-aware mapping
-after accounting for remapping overhead
 ```

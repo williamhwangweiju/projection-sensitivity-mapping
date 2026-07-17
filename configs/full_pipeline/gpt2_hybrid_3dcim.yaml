@@ -180,21 +180,3 @@ phase4:
   evaluate_selection_methods:
     - greedy_measured_gain_per_cost_per_macs_per_token
   max_operating_points: null
-
-phase5:
-  output_root: data/results/phase5_adaptive
-  check_interval: 5
-  cooldown_timesteps: 10
-  minimum_relative_proxy_improvement: 0.02
-  migration_penalty_per_moved_weight_fraction: 0.05
-  max_moved_weight_fraction: 1.0
-  unavailable_noise_std: 0.080
-
-  evaluate_budget_types: [greedy_step]
-  evaluate_selection_methods:
-    - greedy_measured_gain_per_cost_per_macs_per_token
-  max_operating_points: null
-
-  quality_timesteps: null
-  quality_num_realizations: 5
-  quality_antithetic: false

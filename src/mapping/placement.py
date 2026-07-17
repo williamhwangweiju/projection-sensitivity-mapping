@@ -79,7 +79,7 @@ def place_shards(
         # independent of shard importance while remaining reproducible.
         permutation = np.random.default_rng(seed).permutation(len(shard_list))
         ordered_shards = [shard_list[index] for index in permutation]
-    elif policy in {"static_sensitivity", "adaptive_sensitivity"}:
+    elif policy == "static_sensitivity":
         slots.sort(key=lambda slot: (slot.noise_std, slot.tile_id, slot.tier_id))
         ordered_shards = sorted(shard_list, key=lambda shard: (-shard.importance, shard.shard_id))
     else:

@@ -53,10 +53,8 @@ def main() -> None:
     parser.add_argument("--operating-points-artifact", type=Path)
     parser.add_argument("--trace-artifact", type=Path)
     parser.add_argument("--phase3-manifest", type=Path)
-    parser.add_argument("--phase5-manifest", type=Path)
-    for phase in (1, 2, 3, 4, 5):
+    for phase in (1, 2, 3, 4):
         parser.add_argument(f"--skip-phase{phase}", action="store_true")
-    parser.add_argument("--skip-adaptive-quality", action="store_true")
     parser.add_argument(
         "--reselect-digital",
         action="store_true",
@@ -121,44 +119,6 @@ def main() -> None:
             phase3_manifest,
         )
 
-    if args.skip_phase5:
-        phase5_manifest = args.phase5_manifest
-    else:
-        from experiments.phase5_adaptive.run_adaptive_mapping import (
-            main as run_phase5_mapping,
-        )
-
-        phase5_manifest = run_phase5_mapping(
-            config,
-            phase1,
-            operating_points,
-            trace,
-            phase3_manifest,
-        )
-
-    if (
-        not args.skip_phase5
-        and not args.skip_adaptive_quality
-        and phase5_manifest is not None
-    ):
-        phase4_quality_csv: Path | None = None
-        if phase4_metadata is not None:
-            from src.common.config import load_json
-            metadata = load_json(phase4_metadata)
-            value = metadata.get("artifacts", {}).get("quality")
-            phase4_quality_csv = None if value is None else Path(value)
-        from experiments.phase5_adaptive.run_adaptive_quality import (
-            main as run_phase5_quality,
-        )
-
-        run_phase5_quality(
-            config,
-            operating_points,
-            trace,
-            phase5_manifest,
-            phase4_quality_csv,
-        )
-
     print("Hybrid pipeline complete.")
     print(f"Phase 1: {phase1}")
     print(f"Digital operating points: {operating_points}")
@@ -166,8 +126,6 @@ def main() -> None:
     print(f"Phase 3: {phase3_manifest}")
     if phase4_metadata is not None:
         print(f"Phase 4: {phase4_metadata}")
-    if phase5_manifest is not None:
-        print(f"Phase 5: {phase5_manifest}")
 
 
 if __name__ == "__main__":

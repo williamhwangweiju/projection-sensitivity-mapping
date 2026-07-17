@@ -104,17 +104,3 @@ phase4:
   evaluate_budget_types: [explicit]
   evaluate_selection_methods: []
   max_operating_points: 2
-phase5:
-  output_root: data/smoke/phase5
-  check_interval: 1
-  cooldown_timesteps: 1
-  minimum_relative_proxy_improvement: 0.0
-  migration_penalty_per_moved_weight_fraction: 0.0
-  max_moved_weight_fraction: 1.0
-  unavailable_noise_std: 0.080
-  evaluate_budget_types: [explicit]
-  evaluate_selection_methods: []
-  max_operating_points: 2
-  quality_timesteps: [0, 2, 3]
-  quality_num_realizations: 1
-  quality_antithetic: false

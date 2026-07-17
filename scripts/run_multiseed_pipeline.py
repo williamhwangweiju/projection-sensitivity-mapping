@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run Phases 2–5 across independent hardware trace seeds.
+"""Run Phases 2–4 across independent hardware trace seeds.
 
 Phase 1 sensitivity and Phase 1.5 digital operating points are intentionally
 reused across traces. Each trace receives an isolated runtime YAML and output
@@ -31,7 +31,6 @@ def _redirect_outputs(config: dict[str, Any], root: Path) -> None:
     config["phase2"]["output_root"] = str(root / "phase2")
     config["phase3"]["output_root"] = str(root / "phase3")
     config["phase4"]["output_root"] = str(root / "phase4")
-    config["phase5"]["output_root"] = str(root / "phase5")
 
 
 def main() -> None:
@@ -50,8 +49,6 @@ def main() -> None:
         default=REPO_ROOT / "data/results/multiseed",
     )
     parser.add_argument("--skip-phase4", action="store_true")
-    parser.add_argument("--skip-phase5", action="store_true")
-    parser.add_argument("--skip-adaptive-quality", action="store_true")
     parser.add_argument(
         "--vary-placement-seed",
         action="store_true",
@@ -88,10 +85,6 @@ def main() -> None:
         ]
         if args.skip_phase4:
             command.append("--skip-phase4")
-        if args.skip_phase5:
-            command.append("--skip-phase5")
-        if args.skip_adaptive_quality:
-            command.append("--skip-adaptive-quality")
         print("+", " ".join(command), flush=True)
         subprocess.run(command, cwd=REPO_ROOT, check=True)
         manifests.append(
@@ -100,10 +93,6 @@ def main() -> None:
                 "runtime_config": str(runtime_path),
                 "output_root": str(trace_root),
                 "phase4_metadata": str(trace_root / "phase4/phase4_metadata.json"),
-                "phase5_manifest": str(trace_root / "phase5/phase5_manifest.json"),
-                "phase5_quality_metadata": str(
-                    trace_root / "phase5/phase5_quality_metadata.json"
-                ),
             }
         )
 
