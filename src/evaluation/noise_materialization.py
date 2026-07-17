@@ -102,6 +102,9 @@ def apply_tile_noise(
             base_seed=base_seed,
             projection_id=projection_id,
             realization=realization,
+        ).to(
+            device=nominal.device,
+            dtype=nominal.dtype,
         )
         noisy = nominal.clone()
         covered = torch.zeros_like(nominal, dtype=torch.bool)
