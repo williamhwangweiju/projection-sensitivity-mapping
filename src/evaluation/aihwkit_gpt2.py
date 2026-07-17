@@ -22,6 +22,21 @@ from src.common.projections import (
     linear_from_canonical,
 )
 
+from contextlib import contextmanager
+from collections.abc import Iterator
+
+
+@contextmanager
+def cpu_default_device() -> Iterator[None]:
+    """Force implicit PyTorch allocations onto CPU temporarily."""
+    previous_device = torch.get_default_device()
+
+    try:
+        torch.set_default_device("cpu")
+        yield
+    finally:
+        torch.set_default_device(previous_device)
+
 
 @dataclass
 class AnalogProjectionState:
@@ -150,12 +165,8 @@ class HybridAnalogModel:
                 self.phase1_by_id.get(handle.projection_id),
             )
 
-            # AIHWKit requires CPU-backed source weights during mapped-layer
-            # construction.
-            cpu_device = torch.device("cpu")
-
             cpu_weight = prepared.clipped_weight.detach().to(
-                device=cpu_device,
+                device="cpu",
                 dtype=torch.float32,
             )
 
@@ -163,23 +174,30 @@ class HybridAnalogModel:
                 None
                 if bias is None
                 else bias.detach().to(
-                    device=cpu_device,
+                    device="cpu",
                     dtype=torch.float32,
                 )
             )
 
-            digital_linear = linear_from_canonical(
-                cpu_weight,
-                cpu_bias,
-                cpu_device,
-            )
+            with cpu_default_device():
+                digital_linear = linear_from_canonical(
+                    cpu_weight,
+                    cpu_bias,
+                    torch.device("cpu"),
+                )
 
-            analog = AnalogLinearMapped.from_digital(
-                digital_linear,
-                rpu_config=make_rpu_config(self.settings),
-            )
+                if digital_linear.weight.device.type != "cpu":
+                    raise RuntimeError(
+                        f"{handle.projection_id}: temporary digital layer "
+                        f"was created on {digital_linear.weight.device}, expected CPU."
+                    )
 
-            # Move only after construction is complete.
+                analog = AnalogLinearMapped.from_digital(
+                    digital_linear,
+                    rpu_config=make_rpu_config(self.settings),
+                )
+
+            # from_digital completed successfully on CPU.
             analog = analog.to(device)
             analog.eval()
 
