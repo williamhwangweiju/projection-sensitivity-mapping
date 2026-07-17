@@ -31,7 +31,7 @@ def main() -> None:
         reference_noise_std=0.023,
         tile_size=512,
         adc_dac_bits=8,
-        output_bound=12.0,
+        output_bound=None,
         weight_scaling_omega=1.0,
         weight_scaling_columnwise=False,
     )

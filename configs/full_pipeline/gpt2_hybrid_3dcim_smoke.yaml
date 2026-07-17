@@ -37,7 +37,8 @@ analog:
   reference_noise_std: 0.023
   tile_size: 512
   adc_dac_bits: 8
-  output_bound: 12.0
+  # null inherits AIHWKit's IOParameters default (12.0 in aihwkit 1.1.0)
+  output_bound: null
   weight_scaling_omega: 1.0
   weight_scaling_columnwise: false
 phase1:

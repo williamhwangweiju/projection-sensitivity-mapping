@@ -66,9 +66,21 @@ def select_points(points: list[dict[str, Any]], cfg: dict[str, Any], requested_i
         if methods and method not in methods:
             continue
         selected.append(point)
+    # Deterministic budget order: fewest digital projections first, so the
+    # subset below always spans the frontier from cheapest to final point.
+    selected.sort(
+        key=lambda point: (
+            int(point["digital_projection_count"]),
+            float(point["digital_mac_fraction"]),
+            float(point["digital_parameter_fraction"]),
+            str(point["digital_set_id"]),
+        )
+    )
     maximum = cfg.get("max_operating_points")
-    if maximum is not None:
-        selected = selected[: int(maximum)]
+    if maximum is not None and 0 < int(maximum) < len(selected):
+        indices = np.linspace(0, len(selected) - 1, int(maximum))
+        unique_indices = sorted({int(round(value)) for value in indices})
+        selected = [selected[index] for index in unique_indices]
     if not selected:
         raise ValueError("No digital operating points matched the Phase-4 filters.")
     return selected
@@ -185,25 +197,17 @@ def main(
     if not points:
         raise ValueError("All selected Phase-4 operating points were capacity-infeasible or lacked placements.")
 
-    # Phase 4 validates only the final cumulative greedy operating point: all
-    # projections promoted by Phase 1.5 execute digitally, and every remaining
-    # candidate executes in analog. The four policies below therefore compare
-    # placements for one identical analog projection set.
-    final_point = max(
-        points,
-        key=lambda point: (
-            int(point["digital_projection_count"]),
-            float(point["digital_mac_fraction"]),
-            float(point["digital_parameter_fraction"]),
-        ),
-    )
-    points = [final_point]
-    print(
-        "Phase 4 final digital set: "
-        f"{final_point['digital_set_id']} | "
-        f"digital_projections={final_point['digital_projection_count']} | "
-        f"digital_mac_fraction={final_point['digital_mac_fraction']:.6f}"
-    )
+    # Every selected operating point is evaluated. Within each point the four
+    # policies compare placements for one identical analog projection set, and
+    # phase4.max_operating_points controls how many points span the
+    # quality-versus-budget frontier (evenly spaced, endpoints included).
+    print(f"Phase 4 evaluating {len(points)} digital operating point(s):")
+    for point in points:
+        print(
+            f"  {point['digital_set_id']} | "
+            f"digital_projections={point['digital_projection_count']} | "
+            f"digital_mac_fraction={point['digital_mac_fraction']:.6f}"
+        )
 
     points_by_id = {point["digital_set_id"]: point for point in points}
     placement_paths = {
@@ -357,6 +361,10 @@ def main(
     output_root = resolve_path(cfg["output_root"])
     output_root.mkdir(parents=True, exist_ok=True)
     quality_path = write_csv(output_root / "hybrid_quality_by_policy.csv", all_rows)
+    # The partial file is a crash checkpoint written after each operating
+    # point; once the final artifact exists it is redundant and would only
+    # confuse later analysis, so remove it.
+    (output_root / "hybrid_quality_by_policy.partial.csv").unlink(missing_ok=True)
     nominal_path = write_csv(output_root / "nominal_hybrid_frontier.csv", nominal_rows)
     summaries = summarize_rows(all_rows, seed)
     summary_path = write_csv(output_root / "hybrid_quality_summary.csv", summaries)

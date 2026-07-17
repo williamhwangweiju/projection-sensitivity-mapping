@@ -57,7 +57,8 @@ def make_rpu_config(settings: ManualAnalogSettings) -> Any:
     rpu_config.forward.inp_sto_round = False
     rpu_config.forward.inp_asymmetry = 0.0
     rpu_config.forward.out_res = resolution
-    rpu_config.forward.out_bound = settings.output_bound
+    if settings.output_bound is not None:
+        rpu_config.forward.out_bound = settings.output_bound
     rpu_config.forward.out_sto_round = False
     rpu_config.forward.out_scale = 1.0
     rpu_config.forward.out_asymmetry = 0.0
@@ -84,6 +85,18 @@ def make_rpu_config(settings: ManualAnalogSettings) -> Any:
     return rpu_config
 
 
+def _effective_output_bound(settings: ManualAnalogSettings) -> float | None:
+    """Resolve the output bound actually applied to the AIHWKit forward pass."""
+    if settings.output_bound is not None:
+        return settings.output_bound
+    try:
+        from aihwkit.simulator.parameters.io import IOParameters
+
+        return float(IOParameters().out_bound)
+    except ImportError:
+        return None
+
+
 def analog_configuration(settings: ManualAnalogSettings) -> dict[str, Any]:
     settings.validate()
     resolution = 1.0 / float(2**settings.adc_dac_bits - 2)
@@ -102,7 +115,10 @@ def analog_configuration(settings: ManualAnalogSettings) -> dict[str, Any]:
         "input_resolution": resolution,
         "output_resolution": resolution,
         "input_bound": 1.0,
-        "output_bound": settings.output_bound,
+        "output_bound": _effective_output_bound(settings),
+        "output_bound_source": (
+            "config" if settings.output_bound is not None else "aihwkit_default"
+        ),
         "input_stochastic_rounding": False,
         "output_stochastic_rounding": False,
         "bound_management": "ITERATIVE",

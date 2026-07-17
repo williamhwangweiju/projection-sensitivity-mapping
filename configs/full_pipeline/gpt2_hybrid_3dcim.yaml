@@ -69,7 +69,8 @@ analog:
   reference_noise_std: 0.023
   tile_size: 512
   adc_dac_bits: 8
-  output_bound: 12.0
+  # null inherits AIHWKit's IOParameters default (12.0 in aihwkit 1.1.0)
+  output_bound: null
   weight_scaling_omega: 1.0
   weight_scaling_columnwise: false
 
@@ -176,4 +177,6 @@ phase4:
   evaluate_budget_types: [greedy_step]
   evaluate_selection_methods:
     - greedy_measured_gain_per_cost_per_macs_per_token
-  max_operating_points: null
+  # Evenly spaced subset of the greedy frontier, endpoints included
+  # (all-analog step and final greedy step). null = evaluate every point.
+  max_operating_points: 3

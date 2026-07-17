@@ -22,7 +22,7 @@ class ManualAnalogSettings:
     reference_noise_std: float
     tile_size: int
     adc_dac_bits: int
-    output_bound: float
+    output_bound: float | None
     weight_scaling_omega: float
     weight_scaling_columnwise: bool
 
@@ -35,7 +35,11 @@ class ManualAnalogSettings:
             reference_noise_std=float(analog["reference_noise_std"]),
             tile_size=int(analog["tile_size"]),
             adc_dac_bits=int(analog["adc_dac_bits"]),
-            output_bound=float(analog.get("output_bound", 12.0)),
+            output_bound=(
+                None
+                if analog.get("output_bound") is None
+                else float(analog["output_bound"])
+            ),
             weight_scaling_omega=float(analog.get("weight_scaling_omega", 1.0)),
             weight_scaling_columnwise=bool(
                 analog.get("weight_scaling_columnwise", False)
@@ -53,8 +57,10 @@ class ManualAnalogSettings:
             raise ValueError("tile_size must be positive.")
         if self.adc_dac_bits < 2:
             raise ValueError("adc_dac_bits must be at least two.")
-        if not math.isfinite(self.output_bound) or self.output_bound <= 0:
-            raise ValueError("output_bound must be finite and positive.")
+        if self.output_bound is not None and (
+            not math.isfinite(self.output_bound) or self.output_bound <= 0
+        ):
+            raise ValueError("output_bound must be null (AIHWKit default) or finite and positive.")
         if not math.isfinite(self.weight_scaling_omega) or self.weight_scaling_omega < 0:
             raise ValueError("weight_scaling_omega must be finite and non-negative.")
 
