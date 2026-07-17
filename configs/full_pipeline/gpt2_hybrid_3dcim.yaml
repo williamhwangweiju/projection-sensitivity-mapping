@@ -35,7 +35,7 @@ digital_selection_dataset:
   sequence_length: 1024
   stride: 1024
   batch_size: 1
-  max_tokens: 8192
+  max_tokens: 16384
   document_separator: "\n\n"
   drop_incomplete_final_sequence: true
 
@@ -92,10 +92,8 @@ digital_selection:
 
   # Intentionally empty. Every profiled projection, including lm_head, begins as
   # an analog candidate and must earn digital execution through measured gain.
-  forced_digital:
-    - lm_head
+  forced_digital: []
   
-
   # Optional cheap ranking baselines can be added later. The default artifact is
   # populated by the measured greedy search below rather than named hard-coded sets.
   methods: []
@@ -107,11 +105,10 @@ digital_selection:
 
   greedy_marginal:
     enabled: true
-    forced_digital:
-      - lm_head
+    forced_digital: []
     # null means evaluate every remaining projection at every greedy step.
     candidate_pool_size: null
-    max_promotions: 8
+    max_promotions: 12
     objective: gain_per_cost
     cost_field: macs_per_token
     target_delta_nll_vs_digital: 0.10
@@ -170,8 +167,8 @@ phase4:
     - sequential
     - hardware_only
     - static_sensitivity
-  timesteps: null
-  num_realizations: 5
+  timesteps: [0, 30, 60, 90, 119]
+  num_realizations: 3
   antithetic: false
   unavailable_noise_std: 0.080
 
