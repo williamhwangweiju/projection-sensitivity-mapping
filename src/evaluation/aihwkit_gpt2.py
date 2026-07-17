@@ -134,36 +134,93 @@ class HybridAnalogModel:
                 or handle.projection_id in self.digital_projection_ids
             ):
                 continue
+
             original_weight, bias = canonical_weight_bias(handle.module)
-            prepared = prepare_projection_weight(original_weight, self.settings)
+
+            prepared = prepare_projection_weight(
+                original_weight,
+                self.settings,
+            )
+
             preprocessing = prepared.preprocessing.to_dict()
+
             _validate_phase1_preprocessing(
                 handle.projection_id,
                 preprocessing,
                 self.phase1_by_id.get(handle.projection_id),
             )
-            digital_linear = linear_from_canonical(
-                prepared.clipped_weight, bias, device
+
+            # AIHWKit requires CPU-backed source weights during mapped-layer
+            # construction.
+            cpu_device = torch.device("cpu")
+
+            cpu_weight = prepared.clipped_weight.detach().to(
+                device=cpu_device,
+                dtype=torch.float32,
             )
+
+            cpu_bias = (
+                None
+                if bias is None
+                else bias.detach().to(
+                    device=cpu_device,
+                    dtype=torch.float32,
+                )
+            )
+
+            digital_linear = linear_from_canonical(
+                cpu_weight,
+                cpu_bias,
+                cpu_device,
+            )
+
             analog = AnalogLinearMapped.from_digital(
-                digital_linear, rpu_config=make_rpu_config(self.settings)
-            ).to(device)
+                digital_linear,
+                rpu_config=make_rpu_config(self.settings),
+            )
+
+            # Move only after construction is complete.
+            analog = analog.to(device)
             analog.eval()
-            # The validated current-repository path writes logical weights
-            # directly into mapped tiles while preserving mapping scales.
+
+            runtime_weight = prepared.clipped_weight.detach().to(
+                device=device,
+                dtype=torch.float32,
+            )
+
+            runtime_bias = (
+                None
+                if bias is None
+                else bias.detach().to(
+                    device=device,
+                    dtype=torch.float32,
+                )
+            )
+
             set_analog_weights_exact(
                 analog,
-                prepared.clipped_weight,
-                bias,
+                runtime_weight,
+                runtime_bias,
                 verify=True,
             )
+
             self.original_modules[handle.projection_id] = handle.module
-            setattr(handle.parent, handle.attribute, analog)
+
+            setattr(
+                handle.parent,
+                handle.attribute,
+                analog,
+            )
+
             self.states[handle.projection_id] = AnalogProjectionState(
                 handle=handle,
                 analog_module=analog,
-                clipped_weight=prepared.clipped_weight,
-                bias=bias,
+                clipped_weight=runtime_weight.detach().clone(),
+                bias=(
+                    None
+                    if runtime_bias is None
+                    else runtime_bias.detach().clone()
+                ),
                 preprocessing=preprocessing,
             )
         return self
