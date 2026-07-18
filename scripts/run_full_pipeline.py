@@ -10,15 +10,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-
-
 def required(path: Path | None, label: str) -> Path:
     if path is None or not path.is_file():
         raise FileNotFoundError(f"{label} artifact is required when its producing phase is skipped: {path}")
     return path
-
-
-
 
 def run_digital_selection(config: Path, phase1: Path) -> Path:
     """Generate automatic digital operating points from an existing Phase-1 profile."""
@@ -126,7 +121,6 @@ def main() -> None:
     print(f"Phase 3: {phase3_manifest}")
     if phase4_metadata is not None:
         print(f"Phase 4: {phase4_metadata}")
-
 
 if __name__ == "__main__":
     main()

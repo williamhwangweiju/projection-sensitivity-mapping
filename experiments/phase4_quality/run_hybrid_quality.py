@@ -175,6 +175,60 @@ def paired_differences(rows: list[dict[str, Any]], seed: int) -> list[dict[str, 
     return output
 
 
+
+def quality_vs_budget_frontier(
+    nominal_rows: list[dict[str, Any]],
+    summaries: list[dict[str, Any]],
+    digital_nll: float,
+    digital_ppl: float,
+) -> list[dict[str, Any]]:
+    """Join the nominal frontier with degraded per-policy summaries.
+
+    One row per (operating point, policy) with the budget axis, the nominal
+    hybrid quality, and the mean degraded quality side by side, so the
+    quality-versus-budget figure can be plotted from a single artifact.
+    Degraded PPL is derived from mean NLL (a geometric-style mean), which is
+    robust to the exponential blow-ups that dominate arithmetic PPL means.
+    """
+    nominal_by_id = {str(row["digital_set_id"]): row for row in nominal_rows}
+    output: list[dict[str, Any]] = []
+    for summary in summaries:
+        digital_set_id = str(summary["digital_set_id"])
+        nominal = nominal_by_id.get(digital_set_id)
+        if nominal is None:
+            continue
+        degraded_nll = digital_nll + float(summary["mean_delta_nll_total"])
+        output.append({
+            "digital_set_id": digital_set_id,
+            "selection_method": summary["selection_method"],
+            "digital_projection_count": summary["digital_projection_count"],
+            "digital_mac_fraction": summary["digital_mac_fraction"],
+            "digital_parameter_fraction": summary["digital_parameter_fraction"],
+            "digital_incremental_storage_fraction": summary[
+                "digital_incremental_storage_fraction"
+            ],
+            "policy": summary["policy"],
+            "evaluations": summary["evaluations"],
+            "digital_nll": digital_nll,
+            "digital_ppl": digital_ppl,
+            "nominal_hybrid_nll": nominal["nominal_hybrid_nll"],
+            "nominal_hybrid_ppl": nominal["nominal_hybrid_ppl"],
+            "delta_nll_nominal_vs_digital": nominal["delta_nll_nominal_vs_digital"],
+            "mean_delta_nll_total": summary["mean_delta_nll_total"],
+            "mean_delta_nll_tile": summary["mean_delta_nll_tile"],
+            "bootstrap_ci95_delta_nll_tile_low": summary[
+                "bootstrap_ci95_delta_nll_tile_low"
+            ],
+            "bootstrap_ci95_delta_nll_tile_high": summary[
+                "bootstrap_ci95_delta_nll_tile_high"
+            ],
+            "mean_degraded_nll": degraded_nll,
+            "mean_degraded_ppl_from_nll": math.exp(degraded_nll),
+        })
+    output.sort(key=lambda row: (float(row["digital_mac_fraction"]), str(row["policy"])))
+    return output
+
+
 def main(
     config_path: Path,
     phase1_path: Path,
@@ -368,6 +422,15 @@ def main(
     nominal_path = write_csv(output_root / "nominal_hybrid_frontier.csv", nominal_rows)
     summaries = summarize_rows(all_rows, seed)
     summary_path = write_csv(output_root / "hybrid_quality_summary.csv", summaries)
+    frontier_rows = quality_vs_budget_frontier(
+        nominal_rows,
+        summaries,
+        digital_nll=float(digital_nll),
+        digital_ppl=float(digital_ppl),
+    )
+    frontier_path = write_csv(
+        output_root / "quality_vs_budget_frontier.csv", frontier_rows
+    )
     paired = paired_differences(all_rows, seed)
     paired_path = write_csv(output_root / "paired_policy_summary.csv", paired) if paired else None
     metadata_path = output_root / "phase4_metadata.json"
@@ -392,6 +455,7 @@ def main(
         "artifacts": {
             "quality": str(quality_path),
             "nominal_frontier": str(nominal_path),
+            "quality_vs_budget_frontier": str(frontier_path),
             "summary": str(summary_path),
             "paired_summary": None if paired_path is None else str(paired_path),
         },
