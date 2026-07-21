@@ -22,7 +22,7 @@ dataset:
   sequence_length: 1024
   stride: 1024
   batch_size: 1
-  max_tokens: 65536
+  max_tokens: null
   document_separator: "\n\n"
   drop_incomplete_final_sequence: true
 
@@ -35,7 +35,7 @@ digital_selection_dataset:
   sequence_length: 1024
   stride: 1024
   batch_size: 1
-  max_tokens: 16384
+  max_tokens: 65536
   document_separator: "\n\n"
   drop_incomplete_final_sequence: true
 
@@ -47,7 +47,7 @@ evaluation_dataset:
   sequence_length: 1024
   stride: 1024
   batch_size: 1
-  max_tokens: 65536
+  max_tokens: null
   document_separator: "\n\n"
   drop_incomplete_final_sequence: true
 
