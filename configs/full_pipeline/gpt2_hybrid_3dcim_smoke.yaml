@@ -6,6 +6,41 @@ experiment:
 model:
   name: gpt2
   device: cpu
+  # Smoke runs validate contracts on pretrained weights; no Phase 0 checkpoint.
+  checkpoint: null
+
+# Disabled for smoke runs; a minimal-step recipe is kept so the Phase 0
+# entry point can be exercised explicitly against this configuration.
+hwa_training:
+  enabled: false
+  output_root: data/results/phase0_hwa_training/gpt2_smoke
+  dataset:
+    name: Salesforce/wikitext
+    config: wikitext-103-raw-v1
+    split: train
+    sequence_length: 128
+    stride: 128
+    batch_size: 2
+    max_tokens: 4096
+    document_separator: "\n\n"
+    drop_incomplete_final_sequence: true
+  max_steps: 2
+  gradient_accumulation_steps: 1
+  learning_rate: 5.0e-5
+  weight_decay: 0.01
+  warmup_steps: 1
+  max_grad_norm: 1.0
+  precision: fp32
+  seed: 42
+  noise:
+    noise_std_range: [0.0, 0.046]
+    clip_in_forward: true
+    include_lm_head: true
+    exclude_projection_ids: []
+  checkpoint_every_steps: 1000
+  keep_last_checkpoints: 1
+  eval_every_steps: 0
+  eval_max_tokens: 2048
 dataset:
   name: Salesforce/wikitext
   config: wikitext-103-raw-v1

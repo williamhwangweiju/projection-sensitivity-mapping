@@ -13,6 +13,48 @@ experiment:
 model:
   name: gpt2
   device: cpu  # set to cuda in Colab
+  # Phase 0 hardware-aware checkpoint (save_pretrained directory). null loads
+  # the pretrained Hugging Face weights (PTQ contrast configuration).
+  checkpoint: data/results/phase0_hwa_training/gpt2/checkpoint_final
+
+# Phase 0: hardware-aware noise-injection fine-tuning. The model is trained
+# with forward-time clip + Gaussian weight noise on every analog-candidate
+# projection (perturb-forward/clean-update, Joshi et al. 2020), producing the
+# checkpoint referenced by model.checkpoint. Vanilla-PTQ contrast runs set
+# hwa_training.enabled: false and model.checkpoint: null.
+hwa_training:
+  enabled: true
+  output_root: data/results/phase0_hwa_training/gpt2
+  dataset:
+    name: Salesforce/wikitext
+    config: wikitext-103-raw-v1
+    split: train
+    sequence_length: 512
+    stride: 512
+    batch_size: 8
+    max_tokens: 33554432
+    document_separator: "\n\n"
+    drop_incomplete_final_sequence: true
+  max_steps: 2000
+  gradient_accumulation_steps: 4
+  learning_rate: 5.0e-5
+  weight_decay: 0.01
+  warmup_steps: 100
+  max_grad_norm: 1.0
+  precision: bf16  # bf16 requires cuda; falls back to fp32 on cpu
+  seed: 42
+  noise:
+    # Uniform per projection per micro-batch. 2x the deployment reference
+    # (analog.reference_noise_std = 0.023) covers the Phase-2 tile multiplier
+    # span (0.65-1.70x); the zero end anchors clean quality.
+    noise_std_range: [0.0, 0.046]
+    clip_in_forward: true
+    include_lm_head: true
+    exclude_projection_ids: []
+  checkpoint_every_steps: 250
+  keep_last_checkpoints: 2
+  eval_every_steps: 250
+  eval_max_tokens: 65536
 
 # Phase 1 sensitivity calibration data.
 dataset:
@@ -86,6 +128,12 @@ profiling:
   antithetic: true
   sensitivity_field: delta_nll_noise_mean
   sensitivity_unit: delta_nll_noise
+  # Cheap gradient/magnitude proxy scores (run_proxy_sensitivity.py): enables
+  # the fisher/magnitude selection baselines and the static_fisher placement
+  # policy, and reports Spearman rank correlation against the measured score.
+  proxy:
+    enabled: true
+    max_batches: 32
 
 # Phase 1.5: automatic measured digital-set selection.
 digital_selection:
@@ -95,11 +143,14 @@ digital_selection:
   # an analog candidate and must earn digital execution through measured gain.
   forced_digital: []
   
-  # Optional cheap ranking baselines can be added later. The default artifact is
-  # populated by the measured greedy search below rather than named hard-coded sets.
-  methods: []
+  # Cheap ranking baselines at matched projection-count budgets. These
+  # operating points quantify how much of the measured greedy frontier a
+  # gradient (Fisher) or magnitude proxy recovers without noisy profiling.
+  # Phase 4 evaluates the greedy frontier by default; add the method names to
+  # phase4.evaluate_selection_methods to score these points end to end.
+  methods: [fisher_rank, fisher_per_mac, magnitude_rank]
   budgets:
-    projection_counts: []
+    projection_counts: [4, 8, 12]
     parameter_fractions: []
     mac_fractions: []
   explicit_sets: {}
@@ -120,6 +171,15 @@ digital_selection:
 phase2:
   name: mixed_96x8
   output_root: data/results/phase2_fidelity/fidelity_traces
+  # Parameter provenance (docs/PHASE_2.md#parameter-provenance, docs/REFERENCES.md):
+  # - reference_noise_std 0.023: PCM programming noise, a few % of the
+  #   conductance range (Joshi et al., Nat. Commun. 2020).
+  # - class multipliers 0.65-1.70: device/array-to-array spread (Joshi 2020;
+  #   Nandakumar 2019).
+  # - gradual_drift 0.12-0.35 over 120 steps: sigma(t)/sigma(0) ~ (t/t0)^nu
+  #   with nu ~ 0.03-0.06 (Le Gallo et al., PCM drift).
+  # - thermal correlation 0.94 / sd 0.05: spatially correlated cross-chip
+  #   variation (Wan et al., Nature 2022).
   fidelity_model:
     num_timesteps: 120
     reference_noise_std: 0.023
@@ -160,6 +220,7 @@ phase3:
     - sequential
     - hardware_only
     - static_sensitivity
+    - static_fisher   # importance from the Fisher proxy (requires profiling.proxy)
 
 phase4:
   output_root: data/results/phase4_hybrid_quality
@@ -168,6 +229,21 @@ phase4:
     - sequential
     - hardware_only
     - static_sensitivity
+    - static_fisher
+  # Paired-summary comparisons: every method policy against every baseline.
+  method_policies: [static_sensitivity, static_fisher]
+  baseline_policies: [random, sequential, hardware_only]
+  # LAMBADA final-word accuracy alongside NLL/PPL. noisy_scope realization0
+  # keeps policy/timestep comparisons fully paired at one-third the cost of
+  # scoring every realization.
+  lambada:
+    enabled: true
+    name: EleutherAI/lambada_openai
+    config: en
+    split: test
+    max_examples: 1000
+    batch_size: 8
+    noisy_scope: realization0
   timesteps: [0, 30, 60, 90, 119]
   num_realizations: 3
   antithetic: false
@@ -180,3 +256,17 @@ phase4:
   # Evenly spaced subset of the greedy frontier, endpoints included
   # (all-analog step and final greedy step). null = evaluate every point.
   max_operating_points: 3
+
+# First-order analytical per-token energy model (analyze_energy_quality.py).
+# Constants are per-operation energies in picojoules; see docs/REFERENCES.md.
+cost_model:
+  # 8-bit integer MAC, ~0.2-0.3 pJ scaled from 45 nm measurements
+  # (Horowitz, ISSCC 2014, "Computing's energy problem").
+  e_mac_digital_pj: 0.25
+  # In-crossbar PCM MAC, ~1-10 fJ/op reported for analog in-memory MVMs
+  # (Joshi et al., Nat. Commun. 2020; Le Gallo et al., Nat. Electron. 2018).
+  e_analog_mac_pj: 0.005
+  # 8-bit SAR ADC conversion, ~1-2 pJ (Murmann, ADC performance survey).
+  e_adc_pj: 1.5
+  # 8-bit input DAC/driver line activation.
+  e_dac_pj: 0.1

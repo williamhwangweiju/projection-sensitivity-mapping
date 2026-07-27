@@ -14,7 +14,6 @@ from typing import Any, Iterable
 import gc
 import numpy as np
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -22,8 +21,9 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.common.analog import ManualAnalogSettings, analog_configuration, set_seed
 from src.common.config import file_sha256, git_commit, load_json, load_yaml, resolve_path, save_json
-from src.common.dataset import build_causal_lm_batches
-from src.common.metrics import evaluate_nll_ppl, summarize
+from src.common.dataset import build_causal_lm_batches, build_lambada_examples
+from src.common.metrics import evaluate_lambada_accuracy, evaluate_nll_ppl, summarize
+from src.common.model_loading import load_model_and_tokenizer
 from src.evaluation.aihwkit_gpt2 import HybridAnalogModel
 from src.evaluation.hybrid_quality import (
     evaluate_noisy_placement,
@@ -133,18 +133,33 @@ def summarize_rows(rows: list[dict[str, Any]], seed: int) -> list[dict[str, Any]
             "mean_ppl": float(np.mean([float(row["ppl_from_mean_nll"]) for row in group])),
             "mean_proxy_variance": float(np.mean([float(row["proxy_variance"]) for row in group])),
         })
+        accuracies = [
+            float(row["lambada_accuracy"])
+            for row in group
+            if row.get("lambada_accuracy", "") != ""
+        ]
+        output[-1]["mean_lambada_accuracy"] = (
+            float(np.mean(accuracies)) if accuracies else ""
+        )
+        output[-1]["lambada_evaluations"] = len(accuracies)
     return output
 
 
-def paired_differences(rows: list[dict[str, Any]], seed: int) -> list[dict[str, Any]]:
+def paired_differences(
+    rows: list[dict[str, Any]],
+    seed: int,
+    method_policies: Iterable[str] = ("static_sensitivity",),
+    baseline_policies: Iterable[str] = ("hardware_only", "sequential", "random"),
+) -> list[dict[str, Any]]:
     keyed: dict[tuple[str, int, int], dict[str, dict[str, Any]]] = defaultdict(dict)
     for row in rows:
         key = (str(row["digital_set_id"]), int(row["timestep"]), int(row["realization"]))
         keyed[key][str(row["policy"])] = row
-    comparisons = (
-        ("hardware_only", "static_sensitivity"),
-        ("sequential", "static_sensitivity"),
-        ("random", "static_sensitivity"),
+    comparisons = tuple(
+        (baseline, method)
+        for method in method_policies
+        for baseline in baseline_policies
+        if baseline != method
     )
     grouped: dict[tuple[str, str, str], list[float]] = defaultdict(list)
     wins: dict[tuple[str, str, str], int] = defaultdict(int)
@@ -281,21 +296,39 @@ def main(
     antithetic = bool(cfg.get("antithetic", False))
     unavailable_noise_std = float(cfg.get("unavailable_noise_std", config["phase2"]["fidelity_model"]["max_noise_std"]))
 
-    model_name = str(config["model"]["name"])
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(model_name)
-    model.float()
-    model.config.pad_token_id = tokenizer.pad_token_id
-    model.config.use_cache = False
     device = torch.device(str(config["model"]["device"]))
-    model.to(device).eval()
+    model, tokenizer, model_source = load_model_and_tokenizer(config, device=device)
 
     evaluation_config = deepcopy(config)
     evaluation_config["dataset"] = deepcopy(config.get("evaluation_dataset", config["dataset"]))
     batches, dataset_metadata = build_causal_lm_batches(evaluation_config, tokenizer)
     digital_nll, digital_ppl, token_count = evaluate_nll_ppl(model, batches, device)
+
+    # Optional LAMBADA final-word accuracy alongside NLL/PPL.
+    lambada_cfg = cfg.get("lambada", {})
+    lambada_enabled = bool(lambada_cfg.get("enabled", False))
+    lambada_examples: list[dict[str, Any]] = []
+    lambada_metadata: dict[str, Any] | None = None
+    lambada_batch_size = int(lambada_cfg.get("batch_size", 8))
+    lambada_scope = str(lambada_cfg.get("noisy_scope", "realization0"))
+    if lambada_scope not in {"realization0", "all", "nominal_only"}:
+        raise ValueError("phase4.lambada.noisy_scope must be realization0, all, or nominal_only.")
+    digital_lambada_accuracy: float | None = None
+    if lambada_enabled:
+        lambada_examples, lambada_metadata = build_lambada_examples(lambada_cfg, tokenizer)
+        digital_lambada_accuracy, _ = evaluate_lambada_accuracy(
+            model, lambada_examples, device, batch_size=lambada_batch_size
+        )
+        print(
+            f"Digital LAMBADA accuracy: {digital_lambada_accuracy:.4f} "
+            f"({lambada_metadata['num_examples']} examples)"
+        )
+
+    def lambada_extra_eval(noised_model: Any) -> dict[str, float]:
+        accuracy, _ = evaluate_lambada_accuracy(
+            noised_model, lambada_examples, device, batch_size=lambada_batch_size
+        )
+        return {"lambada_accuracy": accuracy}
 
     settings = ManualAnalogSettings.from_config(config)
     settings.validate()
@@ -312,6 +345,12 @@ def main(
         ).convert()
         try:
             nominal_nll, nominal_ppl, _ = evaluate_nominal_hybrid(hybrid, batches, device)
+            nominal_lambada_accuracy: float | None = None
+            if lambada_enabled:
+                # evaluate_nominal_hybrid leaves the nominal weights installed.
+                nominal_lambada_accuracy, _ = evaluate_lambada_accuracy(
+                    hybrid.model, lambada_examples, device, batch_size=lambada_batch_size
+                )
             nominal_rows.append({
                 "digital_set_id": digital_set_id,
                 "selection_method": point["selection_method"],
@@ -327,6 +366,12 @@ def main(
                 "delta_nll_nominal_vs_digital": nominal_nll - digital_nll,
                 "delta_ppl_nominal_vs_digital": nominal_ppl - digital_ppl,
                 "analog_projection_count": len(hybrid.analog_projection_ids),
+                "digital_lambada_accuracy": (
+                    "" if digital_lambada_accuracy is None else digital_lambada_accuracy
+                ),
+                "nominal_lambada_accuracy": (
+                    "" if nominal_lambada_accuracy is None else nominal_lambada_accuracy
+                ),
             })
             for timestep in timesteps:
                 current_noise = np.asarray(trace.noise_std[timestep], dtype=np.float64).copy()
@@ -340,6 +385,10 @@ def main(
                                 f"Missing Phase-3 placement for {digital_set_id}/{policy}."
                             )
                         current_rows = update_placement_noise(static_rows, current_noise, timestep)
+                        include_lambada = lambada_enabled and (
+                            lambada_scope == "all"
+                            or (lambada_scope == "realization0" and realization == 0)
+                        )
                         result = evaluate_noisy_placement(
                             hybrid,
                             batches,
@@ -348,6 +397,7 @@ def main(
                             base_seed=seed,
                             realization=realization,
                             antithetic=antithetic,
+                            extra_eval=lambada_extra_eval if include_lambada else None,
                         )
                         unavailable_shards = sum(
                             int(not bool(trace.available[timestep, int(row["tile_id"])]))
@@ -386,6 +436,7 @@ def main(
                             "faulted_shards": faulted_shards,
                             "unavailable_shards": unavailable_shards,
                             "predicted_tokens": int(result["predicted_tokens"]),
+                            "lambada_accuracy": result.get("lambada_accuracy", ""),
                         }
                         all_rows.append(row)
                         print(
@@ -431,7 +482,17 @@ def main(
     frontier_path = write_csv(
         output_root / "quality_vs_budget_frontier.csv", frontier_rows
     )
-    paired = paired_differences(all_rows, seed)
+    method_policies = [
+        str(value)
+        for value in cfg.get("method_policies", ["static_sensitivity", "static_fisher"])
+        if str(value) in set(policies)
+    ]
+    baseline_policies = [
+        str(value)
+        for value in cfg.get("baseline_policies", ["hardware_only", "sequential", "random"])
+        if str(value) in set(policies)
+    ]
+    paired = paired_differences(all_rows, seed, method_policies, baseline_policies)
     paired_path = write_csv(output_root / "paired_policy_summary.csv", paired) if paired else None
     metadata_path = output_root / "phase4_metadata.json"
     save_json(metadata_path, {
@@ -445,8 +506,15 @@ def main(
         "operating_points_path": str(operating_points_path),
         "trace_path": str(trace_path),
         "phase3_manifest_path": str(phase3_manifest_path),
-        "digital_reference": {"nll": digital_nll, "ppl": digital_ppl, "predicted_tokens": token_count},
+        "digital_reference": {
+            "nll": digital_nll,
+            "ppl": digital_ppl,
+            "predicted_tokens": token_count,
+            "lambada_accuracy": digital_lambada_accuracy,
+        },
+        "model_source": model_source,
         "dataset": dataset_metadata,
+        "lambada": lambada_metadata,
         "analog_configuration": analog_configuration(settings),
         "evaluated_digital_set_ids": [point["digital_set_id"] for point in points],
         "timesteps": timesteps,
