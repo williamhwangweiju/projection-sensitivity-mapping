@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 import torch
 
@@ -33,12 +33,21 @@ def evaluate_noisy_placement(
     base_seed: int,
     realization: int,
     antithetic: bool = False,
+    extra_eval: Callable[[Any], Mapping[str, float]] | None = None,
 ) -> dict[str, float]:
+    """Evaluate one noisy placement; noise is materialized exactly once.
+
+    ``extra_eval`` receives the noised model while the +Z realization is
+    installed (a second metric — e.g. LAMBADA accuracy — therefore shares the
+    exact weight perturbation with the NLL pass); its returned mapping is
+    merged into the result.
+    """
     signs = (1.0, -1.0) if antithetic else (1.0,)
     nll_values: list[float] = []
     ppl_values: list[float] = []
     injected_rms: list[float] = []
     token_count = 0
+    extra_metrics: Mapping[str, float] = {}
     try:
         for sign in signs:
             hybrid.restore_nominal_weights()
@@ -53,6 +62,8 @@ def evaluate_noisy_placement(
             nll_values.append(nll)
             ppl_values.append(ppl)
             injected_rms.append(float(diagnostics["injected_noise_rms"]))
+            if extra_eval is not None and sign == 1.0:
+                extra_metrics = extra_eval(hybrid.model)
     finally:
         hybrid.restore_nominal_weights()
         hybrid.assert_nominal_restored()
@@ -64,4 +75,5 @@ def evaluate_noisy_placement(
         "predicted_tokens": float(token_count),
         "injected_noise_rms": sum(injected_rms) / len(injected_rms),
         "antithetic_evaluations": float(len(signs)),
+        **dict(extra_metrics),
     }
