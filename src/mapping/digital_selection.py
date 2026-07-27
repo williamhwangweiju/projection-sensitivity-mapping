@@ -14,6 +14,18 @@ class DigitalCandidate:
     parameter_count: int
     macs_per_token: int
     tied_to_embedding: bool = False
+    # Cheap proxy scores from the proxy-sensitivity sidecar artifact; None
+    # when no sidecar was provided.
+    fisher_score: float | None = None
+    magnitude_score: float | None = None
+
+    def _require_proxy(self, method: str, value: float | None) -> float:
+        if value is None:
+            raise ValueError(
+                f"Digital selection method {method!r} requires a proxy "
+                "sensitivity artifact (run_proxy_sensitivity.py)."
+            )
+        return value
 
     def score(self, method: str) -> float:
         if method == "sensitivity_rank":
@@ -22,10 +34,21 @@ class DigitalCandidate:
             return self.sensitivity / max(self.parameter_count, 1)
         if method == "sensitivity_per_mac":
             return self.sensitivity / max(self.macs_per_token, 1)
+        if method == "fisher_rank":
+            return self._require_proxy(method, self.fisher_score)
+        if method == "fisher_per_mac":
+            return self._require_proxy(method, self.fisher_score) / max(
+                self.macs_per_token, 1
+            )
+        if method == "magnitude_rank":
+            return self._require_proxy(method, self.magnitude_score)
         raise ValueError(f"Unsupported digital selection method: {method}")
 
 
-def candidates_from_profile(payload: Mapping[str, Any]) -> list[DigitalCandidate]:
+def candidates_from_profile(
+    payload: Mapping[str, Any],
+    proxies: Mapping[str, Mapping[str, Any]] | None = None,
+) -> list[DigitalCandidate]:
     projections = payload.get("projections")
     if projections is None:
         projections = payload.get("results", {}).get("projections")
@@ -33,13 +56,21 @@ def candidates_from_profile(payload: Mapping[str, Any]) -> list[DigitalCandidate
         raise ValueError("Phase 1 artifact does not contain a projections list.")
     result: list[DigitalCandidate] = []
     for row in projections:
+        projection_id = str(row["projection_id"])
+        proxy = None if proxies is None else proxies.get(projection_id)
         result.append(
             DigitalCandidate(
-                projection_id=str(row["projection_id"]),
+                projection_id=projection_id,
                 sensitivity=float(row["sensitivity_score_for_mapping"]),
                 parameter_count=int(row["parameter_count"]),
                 macs_per_token=int(row["macs_per_token"]),
                 tied_to_embedding=bool(row.get("tied_to_embedding", False)),
+                fisher_score=(
+                    None if proxy is None else float(proxy["fisher_score"])
+                ),
+                magnitude_score=(
+                    None if proxy is None else float(proxy["magnitude_score"])
+                ),
             )
         )
     return result

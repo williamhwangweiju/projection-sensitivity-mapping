@@ -101,6 +101,57 @@ def test_fused_qkv_preserves_semantic_boundaries_and_matches_480_total():
     assert all(not (s.row_start < 1536 < s.row_end) for s in qkv)
 
 
+def test_sensitivity_overrides_change_importance_but_not_geometry():
+    base = build_shards(profile_rows(), digital_projection_ids=["p_digital"], tier_rows=4, tier_cols=4)
+    overridden = build_shards(
+        profile_rows(),
+        digital_projection_ids=["p_digital"],
+        tier_rows=4,
+        tier_cols=4,
+        sensitivity_overrides={"p_sensitive": 0.5, "p_robust": 20.0},
+    )
+    assert [s.shard_id for s in base] == [s.shard_id for s in overridden]
+    assert [(s.row_start, s.row_end, s.col_start, s.col_end) for s in base] == [
+        (s.row_start, s.row_end, s.col_start, s.col_end) for s in overridden
+    ]
+    by_projection = {s.projection_id: s.sensitivity for s in overridden}
+    assert by_projection["p_sensitive"] == 0.5
+    assert by_projection["p_robust"] == 20.0
+
+
+def test_sensitivity_overrides_must_cover_every_analog_projection():
+    import pytest
+
+    with pytest.raises(ValueError, match="p_robust"):
+        build_shards(
+            profile_rows(),
+            digital_projection_ids=["p_digital"],
+            tier_rows=4,
+            tier_cols=4,
+            sensitivity_overrides={"p_sensitive": 0.5},
+        )
+
+
+def test_static_fisher_places_by_override_importance():
+    fisher_shards = build_shards(
+        profile_rows(),
+        digital_projection_ids=["p_digital"],
+        tier_rows=4,
+        tier_cols=4,
+        sensitivity_overrides={"p_sensitive": 0.5, "p_robust": 20.0},
+    )
+    noise = [0.01, 0.02, 0.04, 0.08]
+    records = place_shards(
+        fisher_shards, noise=noise, available=[True] * 4, tiers_per_tile=2,
+        policy="static_fisher", timestep=0, seed=42,
+    )
+    quietest = min(records, key=lambda r: (r.tile_noise_std, r.tile_id, r.tier_id))
+    # The override made p_robust the most important projection.
+    assert quietest.projection_id == "p_robust"
+    # Same coverage as every other policy.
+    assert {r.shard_id for r in records} == {s.shard_id for s in fisher_shards}
+
+
 def test_negative_sensitivity_is_floored_for_mapping() -> None:
     rows = [
         {

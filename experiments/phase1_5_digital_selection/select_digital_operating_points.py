@@ -22,10 +22,16 @@ from src.mapping.digital_selection import (
 from src.mapping.sharding import count_projection_shards
 
 
-def main(config_path: Path, phase1_path: Path) -> Path:
+def main(config_path: Path, phase1_path: Path, proxy_path: Path | None = None) -> Path:
     config = load_yaml(config_path)
     profile = load_json(phase1_path)
-    candidates = candidates_from_profile(profile)
+    proxies = None
+    if proxy_path is not None:
+        proxies = {
+            str(row["projection_id"]): row
+            for row in load_json(proxy_path)["projections"]
+        }
+    candidates = candidates_from_profile(profile, proxies)
     cfg = config["digital_selection"]
     forced = [str(value) for value in cfg.get("forced_digital", [])]
     methods = [str(value) for value in cfg["methods"]]
@@ -82,6 +88,7 @@ def main(config_path: Path, phase1_path: Path) -> Path:
         json_path,
         {
             "phase1_path": str(phase1_path),
+            "proxy_path": None if proxy_path is None else str(proxy_path),
             "profile_mapping_unit": profile["mapping_sensitivity_unit"],
             "operating_points": records,
         },
@@ -107,5 +114,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, default=REPO_ROOT / "configs/full_pipeline/gpt2_hybrid_3dcim.yaml")
     parser.add_argument("--phase1", type=Path, required=True)
+    parser.add_argument(
+        "--proxy",
+        type=Path,
+        help="Proxy sensitivity sidecar enabling fisher/magnitude selection methods.",
+    )
     args = parser.parse_args()
-    main(args.config, args.phase1)
+    main(args.config, args.phase1, args.proxy)

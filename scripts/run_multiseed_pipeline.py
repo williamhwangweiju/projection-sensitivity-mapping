@@ -42,6 +42,14 @@ def main() -> None:
     )
     parser.add_argument("--phase1", type=Path, required=True)
     parser.add_argument("--operating-points", type=Path, required=True)
+    parser.add_argument(
+        "--proxy",
+        type=Path,
+        help=(
+            "Proxy sensitivity sidecar reused across trace seeds; required when "
+            "phase3 policies include static_fisher."
+        ),
+    )
     parser.add_argument("--trace-seeds", type=int, nargs="+", required=True)
     parser.add_argument(
         "--output-root",
@@ -83,6 +91,8 @@ def main() -> None:
             "--operating-points-artifact",
             str(args.operating_points.resolve()),
         ]
+        if args.proxy is not None:
+            command.extend(["--proxy-artifact", str(args.proxy.resolve())])
         if args.skip_phase4:
             command.append("--skip-phase4")
         print("+", " ".join(command), flush=True)
@@ -103,6 +113,7 @@ def main() -> None:
                 "base_config": str(args.config.resolve()),
                 "phase1": str(args.phase1.resolve()),
                 "operating_points": str(args.operating_points.resolve()),
+                "proxy": None if args.proxy is None else str(args.proxy.resolve()),
                 "runs": manifests,
             },
             sort_keys=False,

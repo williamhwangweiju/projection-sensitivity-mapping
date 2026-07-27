@@ -55,7 +55,15 @@ def build_shards(
     tier_rows: int,
     tier_cols: int,
     sensitivity_floor: float = 0.0,
+    sensitivity_overrides: Mapping[str, float] | None = None,
 ) -> list[ProjectionShard]:
+    """Tile analog projections into physical shards.
+
+    ``sensitivity_overrides`` replaces the Phase-1 measured score with an
+    alternative importance channel (e.g. a Fisher proxy) per projection ID.
+    Geometry is unaffected, so override and non-override shard sets share
+    identical shard IDs. Every analog projection must be covered.
+    """
     digital = frozenset(digital_projection_ids)
     shards: list[ProjectionShard] = []
     for projection in projection_rows:
@@ -65,10 +73,15 @@ def build_shards(
         out_features = int(projection["out_features"])
         in_features = int(projection["in_features"])
         total = out_features * in_features
-        sensitivity = max(
-            float(projection["sensitivity_score_for_mapping"]),
-            float(sensitivity_floor),
-        )
+        if sensitivity_overrides is None:
+            raw_sensitivity = float(projection["sensitivity_score_for_mapping"])
+        elif projection_id in sensitivity_overrides:
+            raw_sensitivity = float(sensitivity_overrides[projection_id])
+        else:
+            raise ValueError(
+                f"sensitivity_overrides is missing analog projection {projection_id}."
+            )
+        sensitivity = max(raw_sensitivity, float(sensitivity_floor))
         index = 0
         for region_start, region_end in projection_row_regions(projection_id, out_features):
             for row_start in range(region_start, region_end, tier_rows):
