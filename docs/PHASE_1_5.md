@@ -68,6 +68,29 @@ sensitivity_per_mac:
     score(p) = sensitivity(p) / max(macs_per_token(p), 1)
 ```
 
+When a proxy sensitivity sidecar is supplied (`--proxy`, produced by
+`run_proxy_sensitivity.py`; the pipeline driver passes it automatically when
+`profiling.proxy.enabled` is true), three additional methods become
+available:
+
+```text
+fisher_rank:
+    score(p) = fisher_score(p)
+
+fisher_per_mac:
+    score(p) = fisher_score(p) / max(macs_per_token(p), 1)
+
+magnitude_rank:
+    score(p) = magnitude_score(p)
+```
+
+Requesting a proxy method without a sidecar raises an explicit error. The
+primary configurations enable these at matched projection-count budgets so
+the measured greedy frontier can be compared against what a cheap proxy
+would have chosen; Phase 4 evaluates the greedy frontier by default and
+scores proxy-selected points only when their method names are added to
+`phase4.evaluate_selection_methods`.
+
 Candidates are sorted by descending score and then ascending projection ID. Negative Phase 1 scores are not filtered; sufficiently large targets can select them.
 
 ### Projection-count targets

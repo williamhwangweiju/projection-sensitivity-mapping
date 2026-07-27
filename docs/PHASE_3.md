@@ -115,10 +115,19 @@ weights.
 | `sequential` | `tile_id`, then `tier_id` | Catalog order | Deterministic in-order placement |
 | `hardware_only` | Lowest tile noise first | Seeded permutation independent of sensitivity | Hardware-aware, workload-blind placement |
 | `static_sensitivity` | Lowest tile noise first | Highest shard importance first | Sensitivity-aware static placement |
+| `static_fisher` | Lowest tile noise first | Highest shard importance first | Proxy-sensitivity-aware placement (no measured profiling) |
 
 The `hardware_only` permutation is important: GPT-2 catalog order begins with
 early blocks and can correlate with sensitivity. Permuting shards prevents that
 baseline from accidentally becoming sensitivity-aware.
+
+`static_fisher` uses the same ordering rule as `static_sensitivity` but its
+shard importance comes from the proxy sidecar's `fisher_score`
+(`build_shards(..., sensitivity_overrides=...)`) instead of the measured
+Phase-1 score. It therefore requires `--proxy` (the pipeline driver threads
+the sidecar through automatically). Shard geometry — and thus the shard-ID
+set — is identical across importance channels, so the cross-policy contract
+validation is unaffected.
 
 All policies place exactly the same analog shard set for a given digital
 operating point. They differ only in the physical assignment.

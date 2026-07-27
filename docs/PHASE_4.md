@@ -206,6 +206,29 @@ The current runner reads the following unified fields:
 | `phase4.evaluate_budget_types` | Allowed Phase 1.5 budget types |
 | `phase4.evaluate_selection_methods` | Allowed Phase 1.5 selection methods |
 | `phase4.max_operating_points` | Maximum evenly sampled frontier points; null evaluates all |
+| `phase4.method_policies` / `phase4.baseline_policies` | Paired-summary comparison sets: every method policy against every baseline policy |
+| `phase4.lambada.*` | Optional LAMBADA final-word accuracy (`enabled`, `name`, `config`, `split`, `max_examples`, `batch_size`, `noisy_scope`) |
+
+`model.checkpoint` selects the Phase 0 hardware-aware weights (see
+[Phase 0](PHASE_0.md)); the resolved source is recorded as `model_source` in
+`phase4_metadata.json`.
+
+### LAMBADA accuracy
+
+When `phase4.lambada.enabled` is true, Phase 4 additionally reports greedy
+final-word accuracy on LAMBADA (`EleutherAI/lambada_openai` by default): the
+prediction counts as correct only when every target-word token is the argmax
+at its position. Accuracy is measured for the digital reference, each nominal
+hybrid, and noisy placements according to `noisy_scope`:
+
+- `realization0` (default): noisy accuracy only at realization 0, preserving
+  fully paired policy/timestep comparisons at one-third of the cost;
+- `all`: every noisy evaluation;
+- `nominal_only`: no noisy accuracy.
+
+The noisy accuracy pass shares the exact materialized weight noise with the
+NLL pass (`evaluate_noisy_placement(..., extra_eval=...)` evaluates it while
+the +Z realization is installed).
 
 Example:
 
@@ -242,9 +265,10 @@ The default output directory contains:
 | --- | --- |
 | `hybrid_quality_by_policy.csv` | Every digital-set/timestep/realization/policy evaluation |
 | `nominal_hybrid_frontier.csv` | Digital and nominal-hybrid quality and cost for each selected point |
-| `hybrid_quality_summary.csv` | Mean and standard deviation by digital set and policy, plus a bootstrap 95% interval for tile-noise ΔNLL |
-| `paired_policy_summary.csv` | Paired `static_sensitivity` improvements over each baseline |
-| `phase4_metadata.json` | Provenance, dataset metadata, analog settings, references, selected points, and artifact paths |
+| `hybrid_quality_summary.csv` | Mean and standard deviation by digital set and policy, plus a bootstrap 95% interval for tile-noise ΔNLL and `mean_lambada_accuracy` |
+| `paired_policy_summary.csv` | Paired improvements of every `method_policies` entry over every `baseline_policies` entry |
+| `phase4_metadata.json` | Provenance, model source, dataset and LAMBADA metadata, analog settings, references, selected points, and artifact paths |
+| `energy_quality_frontier.csv`, `energy_quality_pareto.png`, `energy_metadata.json` | Post-hoc energy analysis (below) |
 
 During a long run, `hybrid_quality_by_policy.partial.csv` is rewritten when the
 runner leaves each operating-point evaluation, including a partially completed
@@ -274,6 +298,22 @@ NLL improvement = baseline delta_nll_tile - static_sensitivity delta_nll_tile
 
 A positive value therefore means `static_sensitivity` produced lower NLL. The
 bootstrap intervals resample paired timestep/realization differences.
+
+## Energy analysis
+
+`experiments/phase4_quality/analyze_energy_quality.py` joins the
+quality-versus-budget frontier with a first-order analytical energy model
+(`src/cost/energy_model.py`, constants in the `cost_model` configuration
+section with citations; see [REFERENCES](REFERENCES.md)). Per token, digital
+MACs cost `e_mac_digital_pj` each; each placed analog shard costs one DAC
+drive per input column, one analog MAC per weight, and one ADC conversion
+per output row. The output CSV carries the full energy breakdown next to
+nominal and degraded quality plus a per-policy Pareto flag on
+(total energy, mean degraded NLL); the figure plots degraded PPL against
+energy per token. The pipeline driver runs this automatically after Phase 4
+whenever `cost_model` is present. The model deliberately excludes data
+movement, SRAM, control, and communication — label it as first-order
+wherever it is reported.
 
 ## Sanity checks
 
@@ -313,9 +353,11 @@ The number of noisy dataset passes is:
 operating_points × timesteps × realizations × policies × antithetic_signs
 ```
 
-The primary configuration can perform 180 full noisy passes
-(3 × 5 × 3 × 4), plus the digital and nominal-hybrid references. Each pass may
-score up to 65,536 tokens. Start with
+The primary configuration can perform 225 full noisy passes
+(3 × 5 × 3 × 5), plus the digital and nominal-hybrid references and — when
+LAMBADA is enabled with the default `realization0` scope — one accuracy pass
+per (point, timestep, policy). Each NLL pass may score the full held-out
+corpus. Start with
 `configs/full_pipeline/gpt2_hybrid_3dcim_smoke.yaml` and confirm the AIHWKit
 contract before launching a paper-scale run.
 

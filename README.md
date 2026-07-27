@@ -15,26 +15,45 @@ are not covered by `.gitignore`, so review them explicitly before committing.
 
 ```mermaid
 flowchart LR
-    C[WikiText calibration data] --> P1[Phase 1<br/>projection sensitivity]
+    W[WikiText train data] --> P0[Phase 0<br/>HWA fine-tune]
+    P0 --> P1[Phase 1<br/>projection sensitivity]
+    C[WikiText calibration data] --> P1
+    P1 --> PX[Proxy scores<br/>Fisher and magnitude]
     P1 --> P15[Phase 1.5<br/>digital-set selection]
+    PX --> P15
     H[Hardware and fault config] --> P2[Phase 2<br/>tile-fidelity trace]
     P1 --> P3[Phase 3<br/>sharding and placement]
+    PX --> P3
     P15 --> P3
     P2 --> P3
-    T[Held-out test data] --> P4[Phase 4<br/>hybrid NLL/PPL]
+    T[Held-out test data] --> P4[Phase 4<br/>hybrid NLL/PPL + LAMBADA]
     P1 --> P4
     P15 --> P4
     P2 --> P4
     P3 --> P4
+    P4 --> E[Energy analysis<br/>quality vs pJ/token]
 ```
 
 | Stage | Question | Main entry point | Detailed guide |
 | --- | --- | --- | --- |
+| Phase 0 | How much all-analog quality does noise-aware fine-tuning recover before deployment? | `experiments/phase0_hwa_training/run_hwa_training.py` | [Phase 0](docs/PHASE_0.md) |
 | Phase 1 | Which GPT-2 projections are most sensitive to normalized analog weight noise? | `experiments/phase1_sensitivity/run_aihwkit_profiling.py` | [Phase 1](docs/PHASE_1.md) |
+| Proxy scores | How well do cheap Fisher/magnitude proxies recover the measured ranking? | `experiments/phase1_sensitivity/run_proxy_sensitivity.py` | [Phase 1](docs/PHASE_1.md) |
 | Phase 1.5 | Which projections should remain digital under cost and capacity constraints? | `experiments/phase1_5_digital_selection/` | [Phase 1.5](docs/PHASE_1_5.md) |
 | Phase 2 | How does tile-level noise evolve under heterogeneity, drift, thermal variation, and localized faults? | `experiments/phase2_fidelity/run_fidelity_model.py` | [Phase 2](docs/PHASE_2.md) |
 | Phase 3 | How should analog shards be assigned to physical tile/tier slots? | `experiments/phase3_baselines/run_baseline_mappings.py` | [Phase 3](docs/PHASE_3.md) |
-| Phase 4 | How do the digital frontier and placement policy affect held-out NLL/PPL? | `experiments/phase4_quality/run_hybrid_quality.py` | [Phase 4](docs/PHASE_4.md) |
+| Phase 4 | How do the digital frontier and placement policy affect held-out NLL/PPL and LAMBADA accuracy? | `experiments/phase4_quality/run_hybrid_quality.py` | [Phase 4](docs/PHASE_4.md) |
+| Energy analysis | What does each operating point cost per token, and where is the quality/energy Pareto frontier? | `experiments/phase4_quality/analyze_energy_quality.py` | [Phase 4](docs/PHASE_4.md) |
+
+### HWA versus PTQ
+
+The primary configurations fine-tune the model under the deployment noise
+model first (Phase 0) and point `model.checkpoint` at the result; every later
+phase loads that checkpoint. The post-training-quantization (PTQ) contrast —
+the same pipeline on pretrained weights — uses `hwa_training.enabled: false`
+and `model.checkpoint: null`. Keep the two artifact trees separate and report
+them side by side. For Colab execution and session budgeting, see
+[the Colab runbook](docs/COLAB.md).
 
 ## Core experiment contract
 
@@ -196,11 +215,14 @@ traces and placements.
 
 | Stage | Main artifacts |
 | --- | --- |
+| Phase 0 | `data/results/phase0_hwa_training/<model>/checkpoint_final/` and `hwa_metadata.json` |
 | Phase 1 | `data/results/phase1_sensitivity/<timestamped_profile>.json` and `*_ranking.csv` |
+| Proxy scores | `data/results/phase1_sensitivity/proxy_sensitivity_<timestamp>.json` and `proxy_rank_correlation.csv` |
 | Phase 1.5 | `data/results/phase1_5_digital_selection/digital_operating_points.{json,csv}` and `greedy_marginal_points.{json,csv}` |
 | Phase 2 | `data/results/phase2_fidelity/fidelity_traces/<scenario>/seed_<seed>/trace.npz`, `metadata.json`, and `timestep_summary.csv` |
 | Phase 3 | `data/results/phase3_static_mapping/phase3_manifest.json`, `phase3_summary.csv`, and per-point placement CSVs |
-| Phase 4 | `data/results/phase4_hybrid_quality/hybrid_quality_by_policy.csv`, `nominal_hybrid_frontier.csv`, summaries, and `phase4_metadata.json` |
+| Phase 4 | `data/results/phase4_hybrid_quality/hybrid_quality_by_policy.csv` (incl. `lambada_accuracy`), `nominal_hybrid_frontier.csv`, summaries, and `phase4_metadata.json` |
+| Energy analysis | `data/results/phase4_hybrid_quality/energy_quality_frontier.csv`, `energy_quality_pareto.png`, and `energy_metadata.json` |
 
 Major artifacts record upstream paths and provenance such as the configuration
 hash and repository commit. Keep the exact Phase 1 profile, operating-point
@@ -233,8 +255,20 @@ The dependency-light structural subset is:
 python3 -m pytest -q \
   tests/test_automatic_selection_config.py \
   tests/test_digital_selection.py \
+  tests/test_energy_model.py \
   tests/test_fidelity.py \
   tests/test_sharding_and_mapping.py
+```
+
+Tests that need torch and transformers (but not AIHWKit or the network) —
+tiny offline GPT-2 models only:
+
+```bash
+python3 -m pytest -q \
+  tests/test_hwa_training.py \
+  tests/test_lambada_metric.py \
+  tests/test_model_loading.py \
+  tests/test_proxy_sensitivity.py
 ```
 
 Phase 4 also provides an artifact-backed zero-noise and uniform-noise invariance
