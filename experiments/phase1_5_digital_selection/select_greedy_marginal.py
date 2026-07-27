@@ -162,9 +162,9 @@ def main(config_path: Path, phase1_path: Path, output_path: Path, append_to: Pat
     # Heavy ML dependencies are imported lazily so --help and structural tests
     # remain usable in dependency-light environments.
     import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
     from src.common.dataset import build_causal_lm_batches
     from src.common.metrics import evaluate_nll_ppl
+    from src.common.model_loading import load_model_and_tokenizer
 
     config = load_yaml(config_path)
     profile = load_json(phase1_path)
@@ -194,16 +194,8 @@ def main(config_path: Path, phase1_path: Path, output_path: Path, append_to: Pat
         raise ValueError(f"Unknown forced digital projections: {sorted(unknown)}")
     pool = _candidate_pool(candidates, cfg.get("candidate_pool_size"))
 
-    model_name = str(config["model"]["name"])
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(model_name)
-    model.float()
-    model.config.pad_token_id = tokenizer.pad_token_id
-    model.config.use_cache = False
     device = torch.device(str(config["model"]["device"]))
-    model.to(device).eval()
+    model, tokenizer, model_source = load_model_and_tokenizer(config, device=device)
 
     calibration = deepcopy(config)
     if "digital_selection_dataset" in config:
@@ -413,6 +405,7 @@ def main(config_path: Path, phase1_path: Path, output_path: Path, append_to: Pat
 
     payload: dict[str, Any] = {
         "phase1_path": str(phase1_path),
+        "model_source": model_source,
         "dataset": dataset_metadata,
         "predicted_tokens": predicted_tokens,
         "digital_reference_nll": digital_nll,

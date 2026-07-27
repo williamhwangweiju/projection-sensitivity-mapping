@@ -12,7 +12,6 @@ from typing import Any
 import datasets
 import torch
 import transformers
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -20,6 +19,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.common.config import file_sha256, git_commit, load_yaml, resolve_path, save_json
 from src.common.dataset import build_causal_lm_batches
+from src.common.model_loading import load_model_and_tokenizer
 from src.profilers.aihwkit_profiler import AIHWKITSensitivityProfiler
 
 
@@ -37,14 +37,7 @@ def package_versions() -> dict[str, Any]:
 def main(config_path: Path) -> Path:
     config = load_yaml(config_path)
     model_name = str(config["model"]["name"])
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(model_name)
-    model.float()
-    model.config.pad_token_id = tokenizer.pad_token_id
-    model.config.use_cache = False
-    model.eval()
+    model, tokenizer, model_source = load_model_and_tokenizer(config)
     batches, dataset_metadata = build_causal_lm_batches(config, tokenizer)
     profiler = AIHWKITSensitivityProfiler(model, config)
     projections = profiler.profile_all(batches)
@@ -61,6 +54,7 @@ def main(config_path: Path) -> Path:
                 "n_layer": int(model.config.n_layer),
                 "n_embd": int(model.config.n_embd),
                 "vocab_size": int(model.config.vocab_size),
+                "source": model_source,
             },
             "dataset": dataset_metadata,
             "analog_configuration": profiler.analog_configuration(),

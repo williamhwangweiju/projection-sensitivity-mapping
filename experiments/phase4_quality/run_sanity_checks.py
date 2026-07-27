@@ -10,7 +10,6 @@ import sys
 from typing import Any
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -19,6 +18,7 @@ if str(REPO_ROOT) not in sys.path:
 from src.common.analog import ManualAnalogSettings
 from src.common.config import load_json, load_yaml, save_json
 from src.common.dataset import build_causal_lm_batches
+from src.common.model_loading import load_model_and_tokenizer
 from src.evaluation.aihwkit_gpt2 import HybridAnalogModel
 from src.evaluation.hybrid_quality import evaluate_noisy_placement, evaluate_nominal_hybrid
 from src.evaluation.noise_materialization import read_placement_csv
@@ -56,16 +56,8 @@ def main(
     if missing:
         raise FileNotFoundError(f"Missing placement policies: {sorted(missing)}")
 
-    model_name = str(config["model"]["name"])
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(model_name)
-    model.float()
-    model.config.pad_token_id = tokenizer.pad_token_id
-    model.config.use_cache = False
     device = torch.device(str(config["model"]["device"]))
-    model.to(device).eval()
+    model, tokenizer, _ = load_model_and_tokenizer(config, device=device)
     smoke_config = deepcopy(config)
     smoke_config["dataset"] = deepcopy(config.get("evaluation_dataset", config["dataset"]))
     # Keep sanity checks cheap even if the paper config uses the full corpus.
