@@ -18,7 +18,9 @@ from transformers import GPT2Config, GPT2LMHeadModel
 from src.training.hwa import (
     HWANoiseSettings,
     NoisyProjection,
+    restore_generator_states,
     set_noise_enabled,
+    snapshot_generator_states,
     unwrap_analog_candidates,
     wrap_analog_candidates,
 )
@@ -186,6 +188,54 @@ def test_generator_state_roundtrip_reproduces_noise():
     with torch.no_grad():
         second = model(**inputs).logits
     assert torch.equal(first, second)
+    unwrap_analog_candidates(model, wrapped)
+
+
+def test_eval_passes_do_not_advance_training_noise_stream():
+    inputs_model = tiny_model()
+    inputs = batch(inputs_model)
+
+    # Reference: two consecutive noisy forwards with no eval in between.
+    reference = tiny_model()
+    ref_wrapped = wrap_analog_candidates(reference, settings_from(), seed=42)
+    with torch.no_grad():
+        reference(**inputs)
+        expected_second = reference(**inputs).logits.clone()
+    unwrap_analog_candidates(reference, ref_wrapped)
+
+    # Same model/seed, but an "eval" (extra noisy forwards) happens between
+    # the two training forwards, bracketed by snapshot/restore.
+    model = tiny_model()
+    wrapped = wrap_analog_candidates(model, settings_from(), seed=42)
+    with torch.no_grad():
+        model(**inputs)
+        snapshot = snapshot_generator_states(wrapped)
+        model(**inputs)  # eval-like noisy pass that would advance generators
+        model(**inputs)
+        restore_generator_states(wrapped, snapshot, torch.device("cpu"))
+        second = model(**inputs).logits
+    assert torch.equal(second, expected_second)
+    unwrap_analog_candidates(model, wrapped)
+
+
+def test_snapshot_before_first_forward_restores_fresh_generators():
+    inputs_model = tiny_model()
+    inputs = batch(inputs_model)
+
+    reference = tiny_model()
+    ref_wrapped = wrap_analog_candidates(reference, settings_from(), seed=42)
+    with torch.no_grad():
+        expected_first = reference(**inputs).logits.clone()
+    unwrap_analog_candidates(reference, ref_wrapped)
+
+    model = tiny_model()
+    wrapped = wrap_analog_candidates(model, settings_from(), seed=42)
+    snapshot = snapshot_generator_states(wrapped)  # all None: no forward yet
+    with torch.no_grad():
+        model(**inputs)  # advances the lazily created generators
+        restore_generator_states(wrapped, snapshot, torch.device("cpu"))
+        first = model(**inputs).logits
+    assert torch.equal(first, expected_first)
     unwrap_analog_candidates(model, wrapped)
 
 

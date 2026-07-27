@@ -250,3 +250,35 @@ def set_noise_enabled(
     values = wrapped.values() if isinstance(wrapped, Mapping) else wrapped
     for wrapper in values:
         wrapper.noise_enabled = bool(enabled)
+
+
+def snapshot_generator_states(
+    wrapped: Mapping[str, NoisyProjection],
+) -> dict[str, Tensor | None]:
+    """Capture every wrapper's noise-generator state.
+
+    Use around evaluation passes so noisy evals do not advance the training
+    noise streams (otherwise changing the eval cadence changes the training
+    noise sequence).
+    """
+    return {
+        projection_id: wrapper.generator_state()
+        for projection_id, wrapper in wrapped.items()
+    }
+
+
+def restore_generator_states(
+    wrapped: Mapping[str, NoisyProjection],
+    states: Mapping[str, Tensor | None],
+    device: torch.device,
+) -> None:
+    for projection_id, state in states.items():
+        wrapper = wrapped.get(projection_id)
+        if wrapper is None:
+            continue
+        if state is None:
+            # The generator had not been created yet at snapshot time;
+            # recreate it lazily from the deterministic per-projection seed.
+            wrapper._generator = None
+        else:
+            wrapper.set_generator_state(state, device)

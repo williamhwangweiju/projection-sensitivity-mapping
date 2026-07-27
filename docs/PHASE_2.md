@@ -336,16 +336,19 @@ configuration.
 
 ## Parameter provenance
 
-The fidelity model is phenomenological, but its parameter ranges are anchored
-to published analog-memory measurements (full citations in
-[REFERENCES](REFERENCES.md)):
+The fidelity model is phenomenological. Its parameter ranges are
+**literature-motivated scenario values** — chosen to be plausible against
+published analog-memory measurements, not calibrated to or derived from any
+specific device dataset (full citations in [REFERENCES](REFERENCES.md)).
+Report them as scenario parameters and sweep them where a claim depends on
+their magnitude:
 
 | Parameter (primary configuration) | Value | Literature anchor |
 | --- | --- | --- |
 | `reference_noise_std` | 0.023 | PCM programming noise: post-write conductance σ of a few percent of the conductance range (`joshi2020`). The pipeline expresses it as a fraction of each projection's programmed range. |
 | Fidelity-class multipliers | 0.65–0.85 / 0.90–1.15 / 1.35–1.70 | Device-to-device and array-to-array spread of programming noise across a chip (`joshi2020`, `nandakumar2019`): a healthy/typical/poor tile taxonomy spanning roughly ±2x around the reference. |
-| `gradual_drift.total_increase_range` | [0.12, 0.35] | Surrogate for conductance-drift-induced effective-noise growth. With σ(t)/σ(0) ≈ (t/t₀)^ν, a 0.12–0.35 fractional increase over the 120-step window corresponds to ν ≈ 0.03–0.06, inside the PCM drift-exponent range ν ≈ 0.03–0.1 (`legallo2018`). |
-| `thermal_variation.correlation` = 0.94, `standard_deviation_fraction` = 0.05 | — | Slowly varying, spatially correlated cross-chip variation observed in fabricated CIM arrays (`wan2022`); modeled as a per-zone AR(1) perturbation. |
+| `gradual_drift.total_increase_range` | [0.12, 0.35] | Surrogate for conductance-drift-induced effective-noise growth (`legallo2018`). Because timesteps are dimensionless, the increase cannot be converted to a drift exponent ν without fixing a physical t/t₀; the range is chosen so that plausible window durations imply ν values inside the reported PCM range (ν ≈ 0.03–0.1), not derived from one. |
+| `thermal_variation.correlation` = 0.94, `standard_deviation_fraction` = 0.05 | — | **Group-correlated temporal variation**: tiles in one zone share a scalar AR(1) state (initialized from its stationary distribution). No coordinates, adjacency, or heat diffusion are modeled — this is a surrogate for the spatially correlated variation observed in fabricated CIM arrays (`wan2022`), not a spatial model. |
 | `localized_fault.*` | 8 tiles, +0.25–0.70 | Localized degradation motivated by stuck-at and endurance failures reported for ReRAM/PCM arrays (`wan2022`); severity expressed as a permanent noise-scale jump rather than cell-level stuck values. |
 
 `gradual_drift` is explicitly a phenomenological surrogate: it raises the

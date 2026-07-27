@@ -42,3 +42,6 @@ simulators/**/build/
 simulators/**/*.o
 simulators/**/*.so
 aihwkit-lightning/
+
+# Local AIHWKit reference checkout (installed via pip; not a submodule)
+simulators/aihwkit/

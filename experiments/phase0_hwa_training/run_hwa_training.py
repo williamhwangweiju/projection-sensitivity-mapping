@@ -52,11 +52,14 @@ def main(config_path: Path, resume: bool = True) -> Path:
     import transformers
 
     from src.common.dataset import build_causal_lm_batches
+    from src.common.manual_weights import set_seed
     from src.common.metrics import evaluate_nll_ppl
     from src.common.model_loading import load_model_and_tokenizer
     from src.training.hwa import (
         HWANoiseSettings,
+        restore_generator_states,
         set_noise_enabled,
+        snapshot_generator_states,
         unwrap_analog_candidates,
         wrap_analog_candidates,
     )
@@ -81,6 +84,10 @@ def main(config_path: Path, resume: bool = True) -> Path:
 
     device = torch.device(str(config["model"]["device"]))
     use_bf16 = precision == "bf16" and device.type == "cuda"
+    # Seed Python/NumPy/Torch (CPU and CUDA) so dropout and any other global
+    # RNG consumers are reproducible; checkpoints below save/restore the
+    # Torch RNG states as well.
+    set_seed(seed)
 
     # Phase 0 always starts from the pretrained base model, never from its own
     # previous output; model.checkpoint is what downstream phases consume.
@@ -136,18 +143,26 @@ def main(config_path: Path, resume: bool = True) -> Path:
     rng = np.random.default_rng(seed)
     saved_order: list[int] | None = None
     saved_cursor = 0
+    restored_eval_history: list[dict[str, float]] = []
+    restored_loss_history: list[float] = []
     if resume_dir is not None:
         state = torch.load(
-            resume_dir / "training_state.pt", map_location=device, weights_only=False
+            resume_dir / "training_state.pt", map_location="cpu", weights_only=False
         )
         optimizer.load_state_dict(state["optimizer"])
         scheduler.load_state_dict(state["scheduler"])
         start_step = int(state["step"])
         rng = np.random.default_rng()
         rng.bit_generator.state = state["numpy_rng_state"]
+        if state.get("torch_rng_state") is not None:
+            torch.set_rng_state(state["torch_rng_state"])
+        if device.type == "cuda" and state.get("torch_cuda_rng_states") is not None:
+            torch.cuda.set_rng_state_all(state["torch_cuda_rng_states"])
         if len(state.get("batch_order", [])) == len(batches):
             saved_order = [int(value) for value in state["batch_order"]]
             saved_cursor = int(state.get("batch_cursor", 0))
+        restored_eval_history = list(state.get("eval_history", []))
+        restored_loss_history = list(state.get("loss_history", []))
         for projection_id, generator_state in state.get("noise_generator_states", {}).items():
             if projection_id in wrapped and generator_state is not None:
                 wrapped[projection_id].set_generator_state(generator_state, device)
@@ -167,8 +182,16 @@ def main(config_path: Path, resume: bool = True) -> Path:
                 "optimizer": optimizer.state_dict(),
                 "scheduler": scheduler.state_dict(),
                 "numpy_rng_state": rng.bit_generator.state,
+                "torch_rng_state": torch.get_rng_state(),
+                "torch_cuda_rng_states": (
+                    torch.cuda.get_rng_state_all()
+                    if device.type == "cuda"
+                    else None
+                ),
                 "batch_order": [int(value) for value in order],
                 "batch_cursor": int(cursor),
+                "eval_history": eval_history,
+                "loss_history": loss_history,
                 "noise_generator_states": {
                     projection_id: wrapper.generator_state()
                     for projection_id, wrapper in wrapped.items()
@@ -185,10 +208,22 @@ def main(config_path: Path, resume: bool = True) -> Path:
 
     def run_eval(step: int) -> dict[str, float]:
         model.eval()
+        # Evaluation must not advance the training noise streams: snapshot
+        # generator and Torch RNG state and restore both afterwards, so
+        # changing eval_every_steps never changes the training trajectory.
+        generator_snapshot = snapshot_generator_states(wrapped)
+        torch_rng_snapshot = torch.get_rng_state()
+        cuda_rng_snapshot = (
+            torch.cuda.get_rng_state_all() if device.type == "cuda" else None
+        )
         set_noise_enabled(wrapped, False)
         clean_nll, clean_ppl, _ = evaluate_nll_ppl(model, eval_batches, device)
         set_noise_enabled(wrapped, True)
         noisy_nll, noisy_ppl, _ = evaluate_nll_ppl(model, eval_batches, device)
+        restore_generator_states(wrapped, generator_snapshot, device)
+        torch.set_rng_state(torch_rng_snapshot)
+        if cuda_rng_snapshot is not None:
+            torch.cuda.set_rng_state_all(cuda_rng_snapshot)
         model.train()
         record = {
             "step": step,
@@ -203,8 +238,8 @@ def main(config_path: Path, resume: bool = True) -> Path:
         )
         return record
 
-    eval_history: list[dict[str, float]] = []
-    loss_history: list[float] = []
+    eval_history: list[dict[str, float]] = restored_eval_history
+    loss_history: list[float] = restored_loss_history
     if saved_order is not None:
         order = np.asarray(saved_order)
         cursor = saved_cursor

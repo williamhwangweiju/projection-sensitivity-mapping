@@ -86,9 +86,32 @@ def select_points(points: list[dict[str, Any]], cfg: dict[str, Any], requested_i
     return selected
 
 
-def _records_for_proxy(rows: list[dict[str, Any]]) -> list[PlacementRecord]:
+def _records_for_proxy(
+    rows: list[dict[str, Any]],
+    measured_sensitivity: dict[str, float] | None = None,
+    sensitivity_floor: float = 0.0,
+) -> list[PlacementRecord]:
+    """Build proxy records, optionally re-weighted with measured sensitivity.
+
+    static_fisher placement CSVs carry Fisher importance in their
+    sensitivity/importance columns. For a proxy_variance column that is
+    comparable across policies, every policy's records are re-weighted with
+    the measured Phase-1 sensitivity (floored as in Phase 3) when
+    ``measured_sensitivity`` is provided.
+    """
     fields = PlacementRecord.__dataclass_fields__
-    return [PlacementRecord(**{key: row[key] for key in fields}) for row in rows]
+    records = []
+    for row in rows:
+        values = {key: row[key] for key in fields}
+        if measured_sensitivity is not None:
+            sensitivity = max(
+                float(measured_sensitivity[str(row["projection_id"])]),
+                float(sensitivity_floor),
+            )
+            values["sensitivity"] = sensitivity
+            values["importance"] = sensitivity * float(row["shard_weight"])
+        records.append(PlacementRecord(**values))
+    return records
 
 
 def _bootstrap_mean_ci(values: list[float], seed: int, samples: int = 4000) -> tuple[float, float]:
@@ -332,6 +355,13 @@ def main(
 
     settings = ManualAnalogSettings.from_config(config)
     settings.validate()
+    # Measured Phase-1 sensitivity per projection, for a policy-comparable
+    # proxy_variance column (static_fisher CSVs store Fisher importance).
+    measured_sensitivity = {
+        str(row["projection_id"]): float(row["sensitivity_score_for_mapping"])
+        for row in profile["projections"]
+    }
+    proxy_floor = float(config.get("phase3", {}).get("sensitivity_floor", 0.0))
     all_rows: list[dict[str, Any]] = []
     nominal_rows: list[dict[str, Any]] = []
     for point in points:
@@ -407,7 +437,12 @@ def main(
                             int(bool(trace.faulted[timestep, int(row["tile_id"])]))
                             for row in current_rows
                         )
-                        proxy = placement_proxy(_records_for_proxy(current_rows), variance=True)
+                        proxy = placement_proxy(
+                            _records_for_proxy(
+                                current_rows, measured_sensitivity, proxy_floor
+                            ),
+                            variance=True,
+                        )
                         row = {
                             "digital_set_id": digital_set_id,
                             "selection_method": point["selection_method"],
@@ -458,10 +493,14 @@ def main(
             output_root = resolve_path(cfg["output_root"])
             output_root.mkdir(parents=True, exist_ok=True)
 
-            write_csv(
-                output_root / "hybrid_quality_by_policy.partial.csv",
-                all_rows,
-            )
+            # Guard against an empty checkpoint write: failing before the
+            # first row would otherwise raise here and mask the original
+            # exception.
+            if all_rows:
+                write_csv(
+                    output_root / "hybrid_quality_by_policy.partial.csv",
+                    all_rows,
+                )
 
     output_root = resolve_path(cfg["output_root"])
     output_root.mkdir(parents=True, exist_ok=True)

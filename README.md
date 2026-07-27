@@ -151,15 +151,17 @@ bash scripts/run_full_pipeline.sh \
   configs/full_pipeline/gpt2_hybrid_3dcim.yaml
 ```
 
-The paper-scale configuration is intentionally expensive. Before early
-stopping, Phase 1 can require 540 calibration passes, measured Phase 1.5 search
-can require up to 524 more, and Phase 4 can require 180 full noisy held-out
-passes plus reference evaluations. Use the smoke config to validate the
-environment and inspect its artifacts first.
+The paper-scale configuration is intentionally expensive. Phase 0 performs up
+to 2,000 optimizer steps; before early stopping, Phase 1 can require 540
+calibration passes, measured Phase 1.5 search can require up to 524 more, and
+Phase 4 can require 225 full noisy held-out passes (3 points × 5 timesteps ×
+3 realizations × 5 policies) plus reference evaluations. Use the smoke config
+to validate the environment and inspect its artifacts first.
 
-The shell wrapper honors `RUN_PHASE1` through `RUN_PHASE4`. Setting a stage to
+The shell wrapper honors `RUN_PHASE0` through `RUN_PHASE4`. Setting a stage to
 `0` only adds the corresponding skip flag; skipped upstream stages still
-require their artifact arguments.
+require their artifact arguments (a skipped Phase 0 requires the
+`model.checkpoint` directory to already exist when it is configured).
 
 ## Resume from existing artifacts
 
@@ -168,8 +170,10 @@ The Python driver can reuse any completed upstream stages:
 ```bash
 python3 scripts/run_full_pipeline.py \
   --config configs/full_pipeline/gpt2_hybrid_3dcim.yaml \
+  --skip-phase0 \
   --skip-phase1 \
   --phase1-artifact data/results/phase1_sensitivity/<profile>.json \
+  --proxy-artifact data/results/phase1_sensitivity/proxy_sensitivity_<ts>.json \
   --operating-points-artifact data/results/phase1_5_digital_selection/digital_operating_points.json \
   --skip-phase2 \
   --trace-artifact data/results/phase2_fidelity/fidelity_traces/mixed_96x8/seed_42/trace.npz \
@@ -206,10 +210,23 @@ python3 scripts/run_multiseed_pipeline.py \
   --output-root data/results/multiseed
 ```
 
-Each seed receives an isolated runtime YAML and Phase 2–4 output tree. The
-placement seed remains fixed for paired comparisons unless
-`--vary-placement-seed` is supplied. Add `--skip-phase4` to generate only the
-traces and placements.
+Each seed receives an isolated runtime YAML and Phase 2–4 output tree; Phase 0
+and its checkpoint are reused, never retrained per seed. The placement seed
+remains fixed for paired comparisons unless `--vary-placement-seed` is
+supplied. Add `--skip-phase4` to generate only the traces and placements.
+
+After the sweep, aggregate across traces — the within-trace bootstrap
+intervals in `paired_policy_summary.csv` are descriptive (the 15
+timestep/realization samples share one correlated trace); the
+inferential paper numbers treat each trace seed as one statistical unit:
+
+```bash
+python3 scripts/aggregate_multiseed.py \
+  --manifest data/results/multiseed/multiseed_run_manifest.yaml
+```
+
+This writes `cross_trace_paired_summary.csv` with across-trace means,
+t-based 95% intervals, and per-trace win fractions.
 
 ## Default artifacts
 

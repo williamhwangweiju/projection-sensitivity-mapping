@@ -70,7 +70,16 @@ class TileFidelityModel:
         thermal_cfg = self.cfg["degradation"]["thermal_variation"]
         rho = float(thermal_cfg.get("correlation", 0.94))
         thermal_std = float(thermal_cfg.get("standard_deviation_fraction", 0.05))
-        zone_state = np.zeros(self.hardware.num_thermal_zones, dtype=np.float64)
+        if bool(thermal_cfg.get("enabled", True)):
+            # Draw the initial state from the stationary AR(1) distribution so
+            # timestep 0 (where Phase 3 maps) is not biased toward zero
+            # variation; with innovation std thermal_std*sqrt(1-rho^2), the
+            # stationary standard deviation is thermal_std.
+            zone_state = rng.normal(
+                0.0, thermal_std, size=self.hardware.num_thermal_zones
+            )
+        else:
+            zone_state = np.zeros(self.hardware.num_thermal_zones, dtype=np.float64)
 
         fault_cfg = self.cfg["degradation"]["localized_fault"]
         fault_count = int(fault_cfg.get("num_affected_tiles", 0)) if bool(fault_cfg.get("enabled", True)) else 0

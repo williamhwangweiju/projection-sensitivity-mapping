@@ -65,6 +65,18 @@ def main() -> None:
     args = parser.parse_args()
 
     base = load_yaml(args.config)
+    # Phase 0 is a calibration artifact like Phases 1/1.5: it must be reused,
+    # never retrained per trace seed. Validate the shared checkpoint up front.
+    checkpoint = base.get("model", {}).get("checkpoint")
+    if checkpoint is not None:
+        from src.common.config import resolve_path
+
+        checkpoint_path = resolve_path(checkpoint)
+        if not checkpoint_path.is_dir():
+            raise FileNotFoundError(
+                "model.checkpoint does not exist; run Phase 0 once before the "
+                f"multi-seed sweep: {checkpoint_path}"
+            )
     args.output_root.mkdir(parents=True, exist_ok=True)
     manifests: list[dict[str, Any]] = []
     for trace_seed in args.trace_seeds:
@@ -85,6 +97,7 @@ def main() -> None:
             str(REPO_ROOT / "scripts/run_full_pipeline.py"),
             "--config",
             str(runtime_path),
+            "--skip-phase0",
             "--skip-phase1",
             "--phase1-artifact",
             str(args.phase1.resolve()),

@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""Cheap proxy sensitivity scores: diagonal Fisher and magnitude baselines.
+"""Cheap proxy sensitivity scores: gradient-square and magnitude baselines.
 
 The measured Phase-1 sensitivity requires hundreds of noisy dataset passes.
 This script computes two standard cheap alternatives from the same calibration
 data with a handful of gradient passes and no AIHWKit dependency:
 
-- ``fisher_score``: second-order expected NLL increase under the deployment
-  noise model, ``sigma_abs^2 x trace(diagonal empirical Fisher)`` with
-  ``sigma_abs = reference_noise_std x programmed_range``.
+- ``fisher_score``: ``sigma_abs^2 x` the token-weighted sum of squared
+  gradients of the per-window mean NLL, with
+  ``sigma_abs = reference_noise_std x programmed_range``. NOTE: squaring the
+  window-mean gradient retains cross-token interference terms, so this is a
+  *windowed gradient-square proxy* for the diagonal empirical Fisher, not the
+  per-example estimator sum_i (grad l_i)^2, and the conventional 1/2 factor
+  of the second-order expansion is omitted. Rankings are the intended use;
+  absolute values are not calibrated expected-loss increases.
 - ``magnitude_score``: noise-to-signal energy ratio,
   ``sigma_abs^2 x parameter_count / ||W_clipped||_F^2``.
 
@@ -103,8 +108,9 @@ def main(config_path: Path, phase1_path: Path | None = None) -> Path:
         for projection_id, parameter in parameters.items()
     }
 
-    # Token-weighted empirical diagonal Fisher: one backward per batch through
-    # the batch-mean NLL, squared gradients weighted by predicted tokens.
+    # Windowed gradient-square accumulation: one backward per batch through
+    # the window-mean NLL, squared gradients weighted by predicted tokens.
+    # See the module docstring for how this differs from per-example Fisher.
     total_weight = 0.0
     for index, batch in enumerate(batches):
         moved = {key: value.to(device) for key, value in batch.items()}
@@ -191,7 +197,12 @@ def main(config_path: Path, phase1_path: Path | None = None) -> Path:
                 "dataset": dataset_metadata,
                 "batches_used": len(batches),
                 "reference_noise_std": settings.reference_noise_std,
-                "fisher_estimator": "token_weighted_empirical_diagonal_fisher",
+                "fisher_estimator": "token_weighted_window_gradient_square",
+                "fisher_estimator_note": (
+                    "Squared gradient of the per-window mean NLL; retains "
+                    "cross-token terms and omits the 1/2 second-order factor. "
+                    "Use for ranking, not calibrated loss prediction."
+                ),
             },
             "projections": rows,
             "rank_correlation": rank_correlation,

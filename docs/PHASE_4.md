@@ -290,14 +290,24 @@ Important columns in `hybrid_quality_by_policy.csv` include:
 When antithetic evaluation is enabled, `ppl_mean` is instead the arithmetic
 mean of the per-sign perplexities.
 
-The paired summary defines:
+The paired summary defines, for every configured method/baseline pair:
 
 ```text
-NLL improvement = baseline delta_nll_tile - static_sensitivity delta_nll_tile
+NLL improvement = baseline delta_nll_tile - method delta_nll_tile
 ```
 
-A positive value therefore means `static_sensitivity` produced lower NLL. The
+A positive value therefore means the method policy produced lower NLL. The
 bootstrap intervals resample paired timestep/realization differences.
+
+> [!WARNING]
+> Within one run, the 15 timestep × realization samples share a single
+> correlated hardware trace, one model, and paired noise fields. The
+> bootstrap intervals in `paired_policy_summary.csv` are therefore
+> **descriptive within-trace spreads, not inferential 95% confidence
+> intervals**. For paper claims, run several trace seeds
+> (`scripts/run_multiseed_pipeline.py`) and aggregate with
+> `scripts/aggregate_multiseed.py`, which treats each independent trace as
+> one statistical unit and reports across-trace t-based intervals.
 
 ## Energy analysis
 

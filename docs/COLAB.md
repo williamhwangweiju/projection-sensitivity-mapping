@@ -122,4 +122,21 @@ python3 scripts/run_multiseed_pipeline.py \
 ```
 
 `--proxy` reuses one proxy sidecar across seeds (required when the policy
-list includes `static_fisher`).
+list includes `static_fisher`). Phase 0 is skipped and its checkpoint is
+reused; the script fails fast if `model.checkpoint` does not exist.
+
+Then produce the inferential paper table (traces as statistical units —
+the within-trace bootstrap intervals are descriptive only):
+
+```bash
+python3 scripts/aggregate_multiseed.py \
+  --manifest data/results/multiseed/multiseed_run_manifest.yaml
+```
+
+## HWA versus PTQ artifact trees
+
+The notebook separates variants as `results/<mode>/hwa/seed_<seed>` and
+`results/<mode>/ptq/seed_<seed>`. If you have artifacts from before this
+separation (stored directly under `results/<mode>/seed_<seed>`), move the
+Phase 0 output into the `hwa` subtree and the vanilla artifacts into the
+`ptq` subtree once, then never mix them again.
