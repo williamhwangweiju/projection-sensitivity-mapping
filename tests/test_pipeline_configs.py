@@ -1,4 +1,4 @@
-"""Invariants of every shipped full-pipeline configuration."""
+"""Invariants of the shipped full-pipeline configurations."""
 from pathlib import Path
 import sys
 
@@ -16,7 +16,6 @@ from src.mapping.sharding import count_projection_shards
 # (n_layer, n_embd, vocab_size).
 MODEL_GEOMETRY = {
     "gpt2": (12, 768, 50257),
-    "gpt2-medium": (24, 1024, 50257),
 }
 
 
@@ -30,28 +29,17 @@ def full_pipeline_configs() -> list[Path]:
     return paths
 
 
+def all_configs() -> list[Path]:
+    return sorted((REPO_ROOT / "configs/full_pipeline").glob("*.yaml"))
+
+
 def load(path: Path) -> dict:
     with path.open("r", encoding="utf-8") as stream:
         return yaml.safe_load(stream)
 
 
 @pytest.mark.parametrize("config_path", full_pipeline_configs(), ids=lambda p: p.stem)
-def test_config_has_no_hardcoded_digital_projection(config_path: Path):
-    config = load(config_path)
-    selection = config["digital_selection"]
-    greedy = selection["greedy_marginal"]
-    assert config["profiling"]["include_lm_head"] is True
-    assert selection["forced_digital"] == []
-    assert greedy["forced_digital"] == []
-    # The all-analog deployment study: explicit sets may only declare fully
-    # analog candidate universes; no projection is hard-coded digital.
-    for name, projection_ids in selection["explicit_sets"].items():
-        assert projection_ids == [], f"explicit set {name} protects projections"
-    assert greedy["candidate_pool_size"] is None
-
-
-@pytest.mark.parametrize("config_path", full_pipeline_configs(), ids=lambda p: p.stem)
-def test_hardware_can_hold_initial_all_analog_candidate_set(config_path: Path):
+def test_hardware_holds_the_all_analog_candidate_set(config_path: Path):
     config = load(config_path)
     model_name = str(config["model"]["name"])
     assert model_name in MODEL_GEOMETRY, f"Add {model_name} to MODEL_GEOMETRY."
@@ -63,7 +51,6 @@ def test_hardware_can_hold_initial_all_analog_candidate_set(config_path: Path):
         int(config["hardware"]["num_tiles"]) * int(config["hardware"]["tiers_per_tile"])
     )
 
-    # Per-block projections in canonical [out, in] coordinates.
     per_block = {
         "attn.c_attn": (3 * n_embd, n_embd),
         "attn.c_proj": (n_embd, n_embd),
@@ -81,25 +68,31 @@ def test_hardware_can_hold_initial_all_analog_candidate_set(config_path: Path):
             "lm_head", vocab_size, n_embd, tier_rows, tier_cols
         )
     assert required <= available_tiers, (
-        f"{config_path.name}: all-analog candidate set needs {required} tiers "
+        f"{config_path.name}: all-analog deployment needs {required} tiers "
         f"but the substrate provides {available_tiers}."
     )
 
 
 @pytest.mark.parametrize("config_path", full_pipeline_configs(), ids=lambda p: p.stem)
-def test_final_evaluation_filters_match_generated_points(config_path: Path):
-    """Every Phase-4 selection-method filter must be producible by Phase 1.5."""
+def test_primary_config_profiles_the_full_candidate_universe(config_path: Path):
     config = load(config_path)
-    selection = config["digital_selection"]
-    producible = {f"explicit:{name}" for name in selection["explicit_sets"]}
-    producible.update(str(method) for method in selection["methods"])
-    if bool(selection["greedy_marginal"].get("enabled", True)):
-        objective = selection["greedy_marginal"].get("objective", "gain_per_cost")
-        cost_field = selection["greedy_marginal"].get("cost_field", "macs_per_token")
-        producible.add(f"greedy_measured_{objective}_per_{cost_field}")
-    assert producible, "No operating-point source is configured."
-    for method in config["phase4"]["evaluate_selection_methods"]:
-        assert str(method) in producible, (
-            f"{config_path.name}: phase4 filter {method!r} matches no "
-            "configured selection source."
+    assert config["profiling"]["include_lm_head"] is True
+    n_layer = MODEL_GEOMETRY[str(config["model"]["name"])][0]
+    assert sorted(config["profiling"]["profile_blocks"]) in ([], list(range(n_layer)))
+
+
+@pytest.mark.parametrize("config_path", all_configs(), ids=lambda p: p.stem)
+def test_policy_lists_are_coherent(config_path: Path):
+    config = load(config_path)
+    phase3_policies = [str(value) for value in config["phase3"]["policies"]]
+    phase4_policies = [str(value) for value in config["phase4"]["policies"]]
+    assert phase3_policies == phase4_policies
+    methods = set(config["phase4"].get("method_policies", []))
+    baselines = set(config["phase4"].get("baseline_policies", []))
+    assert methods <= set(phase4_policies)
+    assert baselines <= set(phase4_policies)
+    assert not (methods & baselines)
+    if "static_fisher" in phase3_policies:
+        assert bool(config["profiling"]["proxy"]["enabled"]), (
+            "static_fisher requires profiling.proxy.enabled"
         )

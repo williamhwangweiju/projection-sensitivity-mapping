@@ -1,31 +1,26 @@
-# Phase 4: Hybrid Language-Model Quality Evaluation
+# Phase 4: All-Analog Quality Evaluation
 
-Phase 4 is the model-level evaluation stage. It combines automatically selected
-digital projection sets, static Phase 3 placements, and time-varying Phase 2
-tile noise, then measures GPT-2 negative log-likelihood (NLL) and perplexity
-(PPL) through an AIHWKit analog-forward path.
+Phase 4 is the model-level evaluation stage. It converts every profiled
+projection to AIHWKit analog execution, materializes time-varying Phase-2
+tile noise under each static Phase-3 placement, and measures GPT-2 negative
+log-likelihood (NLL) and perplexity (PPL) on held-out data.
 
-The principal comparison is paired: for the same digital set, timestep, and
-Gaussian realization, how much quality does `static_sensitivity` preserve
-relative to random, sequential, and hardware-only placement?
+The principal comparison is paired: for the same timestep and Gaussian
+realization, how much quality does each method policy
+(`static_sensitivity`, `static_fisher`) preserve relative to the `random`,
+`sequential`, and `hardware_only` baselines?
 
 ## Inputs
 
-The runner requires five inputs:
-
 1. the unified YAML configuration;
-2. a Phase 1 projection profile;
-3. the Phase 1.5 operating-point artifact;
-4. a Phase 2 `trace.npz`; and
-5. the Phase 3 `phase3_manifest.json`.
-
-The Phase 1 profile is also the authoritative projection candidate universe.
-Projections absent from a reduced smoke profile remain digital and are not
-silently converted to analog.
+2. the Phase 1 projection profile (candidate universe + preprocessing
+   checksums);
+3. the Phase 2 `trace.npz`; and
+4. the Phase 3 `phase3_manifest.json`.
 
 ## Quick start
 
-The full pipeline invokes Phase 4 after validating all upstream contracts:
+The pipeline driver invokes Phase 4 after contract validation:
 
 ```bash
 python3 scripts/run_full_pipeline.py \
@@ -38,257 +33,104 @@ To evaluate existing artifacts directly:
 python3 experiments/phase4_quality/run_hybrid_quality.py \
   --config configs/full_pipeline/gpt2_hybrid_3dcim.yaml \
   --phase1 data/results/phase1_sensitivity/<profile>.json \
-  --operating-points data/results/phase1_5_digital_selection/digital_operating_points.json \
   --trace data/results/phase2_fidelity/fidelity_traces/mixed_96x8/seed_42/trace.npz \
   --phase3-manifest data/results/phase3_static_mapping/phase3_manifest.json
 ```
 
-Repeat `--digital-set-id <id>` to request particular operating points. Requested
-IDs must still be capacity-feasible, have Phase 3 placements, and match the
-configured budget-type and selection-method filters.
-
-Use `configs/full_pipeline/gpt2_hybrid_3dcim.yaml` or its smoke counterpart.
-The older `configs/phase4_quality/default.yaml` uses a different schema
-(`noise`, `evaluation`, and `output` sections) and is not a drop-in
-configuration for the current runner.
-
 ## Evaluation design
 
-### 1. Select the operating points
+### 1. References
 
-Phase 4 discards capacity-infeasible points, applies:
-
-- `phase4.evaluate_budget_types`;
-- `phase4.evaluate_selection_methods`; and
-- any `--digital-set-id` constraints.
-
-It orders the remaining points from the smallest digital projection count and
-cost upward. If `phase4.max_operating_points` is greater than one, evenly
-spaced indices are chosen with both ends of the available frontier included. A
-limit of one selects only the cheapest point.
-
-The primary configuration evaluates up to three points from the measured greedy
-frontier. The smoke configuration evaluates up to two explicitly named points.
-
-### 2. Build the evaluation corpus
-
-The tokenizer and `AutoModelForCausalLM` are loaded from `model.name`. Phase 4
-uses `evaluation_dataset` when present and otherwise falls back to `dataset`.
-The shared batching code:
-
-- concatenates non-empty documents with `document_separator`;
-- tokenizes deterministically;
-- optionally truncates to `max_tokens`;
-- creates fixed windows of `sequence_length` with the configured `stride`;
-- masks already-scored overlap and padding with `-100`; and
-- reports token-weighted NLL and `exp(NLL)`.
-
-The primary configuration deliberately separates validation data used by Phase
-1 and Phase 1.5 from held-out WikiText test data used here.
-
-### 3. Measure the digital reference
-
-The untouched Hugging Face model is evaluated once:
+The untouched model (loaded from `model.checkpoint`, i.e. the Phase-0 HWA
+weights) is evaluated once on the held-out corpus:
 
 ```text
-digital_nll
-digital_ppl = exp(digital_nll)
+digital_nll, digital_ppl = exp(digital_nll)
 ```
 
-These values are the common reference for all digital operating points and
-placement policies.
-
-### 4. Construct one nominal hybrid model per digital set
-
-For each selected operating point, protected projections stay as their original
-digital modules. Every remaining Phase 1 candidate is converted to
-AIHWKit `AnalogLinearMapped`.
-
-Before conversion, each canonical `[out, in]` projection weight is:
-
-1. converted from GPT-2's stored orientation where necessary;
-2. clipped once to `±clip_sigma × population_std`;
-3. assigned a programmed range using `peak_to_peak` or `absmax`; and
-4. written into AIHWKit while preserving its clean mapping scales.
-
-For current Phase 1 artifacts, Phase 4 compares the resulting preprocessing
-metadata and checksums with Phase 1. A mismatch in the original weight, clipped
-weight, range mode, standard deviation, threshold, or programmed range stops
-the run. Legacy profiles without a nested `preprocessing` mapping skip this
-strict check.
-
-The nominal hybrid evaluation contains clipping and the configured AIHWKit
-analog I/O path, but no Phase 2 tile noise. It establishes:
+Every projection is then converted to `AnalogLinearMapped`: canonical
+weights are clipped once at `analog.clip_sigma` population standard
+deviations, written with exact mapped-tile writes, and verified against the
+Phase-1 preprocessing checksums. The zero-tile-noise evaluation of this
+model gives the nominal reference:
 
 ```text
 nominal_hybrid_nll
 delta_nll_nominal_vs_digital = nominal_hybrid_nll - digital_nll
 ```
 
-### 5. Materialize tile noise in logical weight coordinates
+This delta is the deployment (clipping + ADC/DAC) cost of the all-analog
+conversion — the number that answers "why is no digital protection needed?"
+
+### 2. Materialize tile noise in logical weight coordinates
 
 AIHWKit's internal programming, read, drift, and forward weight noise are
-disabled. Phase 2 noise is added manually exactly once.
-
-Let `W0,p` be the clipped nominal weight for projection `p`, `Rp` its
-programmed range, and `Zp,r` an i.i.d. standard-normal field keyed by the
-experiment seed, projection ID, and realization `r`. For the coordinates of
-shard `s` assigned to tile `i`:
+disabled; Phase-2 noise is added manually exactly once per evaluation. For
+the coordinates of shard `s` assigned to tile `i` at timestep `t`:
 
 ```text
-Wnoisy,p[s] = W0,p[s] + sign × noise_std[t, i] × Rp × Zp,r[s]
+Wnoisy,p[s] = W0,p[s] + noise_std[t, i] × Rp × Zp,r[s]
 ```
 
-There is no post-noise clipping.
+with `Rp` the projection's programmed range and `Zp,r` an i.i.d.
+standard-normal field keyed by the experiment seed, projection ID, and
+realization `r`. There is no post-noise clipping. The same coordinate field
+is reused across policies and timesteps; only the tile-dependent scale
+changes, so policy comparisons are paired.
 
-The same coordinate field is reused across policies, timesteps, and operating
-points wherever that projection remains analog. Only the tile-dependent scale
-changes. This pairing reduces variance in policy comparisons.
+### 3. Evaluate static placements over time
 
-If `phase4.antithetic` is true, the runner evaluates both `+Z` and `-Z` and
-averages their NLL. Otherwise it evaluates only `+Z`.
-
-### 6. Evaluate static placements over time
-
-Phase 3 assignments remain fixed. At each requested timestep, Phase 4 replaces
-the placement CSV's original tile-noise value with the current value from the
-trace.
-
-If a tile has become unavailable, the current implementation does not remap its
-shards or route them digitally. It substitutes `phase4.unavailable_noise_std`,
-falling back to the Phase 2 maximum if that field is absent. `faulted_shards`
-and `unavailable_shards` are reported for interpretation.
-
-For every digital set × timestep × realization × policy, Phase 4 reports:
+At each requested timestep the placement CSV's tile-noise values are
+replaced with the current trace values; unavailable tiles receive
+`phase4.unavailable_noise_std`. For every timestep × realization × policy:
 
 ```text
 delta_nll_total = noisy_nll - digital_nll
 delta_nll_tile  = noisy_nll - nominal_hybrid_nll
 ```
 
-The first includes nominal hybrid conversion cost and tile noise. The second
-isolates the additional degradation associated with the materialized tile
-noise.
+The first includes the nominal conversion cost; the second isolates the
+degradation attributable to tile noise — the quantity placement policies
+compete over.
 
 ## Timesteps
 
-When `phase4.timesteps` is a non-empty list, values are clamped to the trace
-range, deduplicated, and sorted.
+`phase4.timesteps` values are clamped to the trace range, deduplicated, and
+sorted. When null, Phase 4 chooses timestep 0, the midpoint, the final
+timestep, and the timesteps around the earliest fault onset.
 
-When it is null or empty, Phase 4 chooses:
+## Checkpointing and resume
 
-- timestep 0;
-- the midpoint;
-- the final timestep; and
-- the timestep immediately before and at the earliest scheduled fault onset,
-  when a fault exists.
-
-A timestep is a dimensionless, frozen hardware-state snapshot for one complete
-dataset evaluation. It is not a wall-clock duration.
+`hybrid_quality_by_policy.partial.csv` is rewritten after every completed
+timestep block. On restart, completed (policy, timestep, realization)
+evaluations are loaded and skipped — noise fields are order-independent, so
+a preempted session repeats at most one timestep. The partial file is
+removed once the final CSV is written.
 
 ## Configuration
 
-The current runner reads the following unified fields:
-
 | Field | Meaning |
 | --- | --- |
-| `model.name` | Hugging Face model/tokenizer identifier |
-| `model.device` | PyTorch device such as `cpu` or `cuda` |
-| `evaluation_dataset` | Held-out dataset/windowing configuration; falls back to `dataset` |
-| `analog.*` | Shared Phase 1/4 clipping, range, mapped-tile, ADC/DAC, bound, and scaling settings |
-| `profiling.include_lm_head` | Whether the language-model head belongs to the candidate universe |
-| `phase4.output_root` | Final artifact directory |
+| `model.checkpoint` | Phase-0 HWA weights ([Phase 0](PHASE_0.md)); null = pretrained (PTQ contrast) |
+| `evaluation_dataset` | Held-out dataset/windowing; falls back to `dataset` |
+| `analog.*` | Shared Phase 1/4 clipping, range, tile, ADC/DAC, and scaling settings |
+| `phase4.output_root` | Artifact directory |
 | `phase4.policies` | Placement policies to evaluate |
+| `phase4.method_policies` / `phase4.baseline_policies` | Paired-summary comparison sets |
 | `phase4.timesteps` | Explicit trace snapshots, or null for automatic selection |
 | `phase4.num_realizations` | Gaussian fields per timestep and policy |
-| `phase4.antithetic` | Evaluate paired `±Z` fields |
+| `phase4.antithetic` | Evaluate paired ±Z fields |
 | `phase4.unavailable_noise_std` | Substitute scale for unavailable tiles |
-| `phase4.evaluate_budget_types` | Allowed Phase 1.5 budget types |
-| `phase4.evaluate_selection_methods` | Allowed Phase 1.5 selection methods |
-| `phase4.max_operating_points` | Maximum evenly sampled frontier points; null evaluates all |
-| `phase4.method_policies` / `phase4.baseline_policies` | Paired-summary comparison sets: every method policy against every baseline policy |
-| `phase4.lambada.*` | Optional LAMBADA final-word accuracy (`enabled`, `name`, `config`, `split`, `max_examples`, `batch_size`, `noisy_scope`) |
-
-`model.checkpoint` selects the Phase 0 hardware-aware weights (see
-[Phase 0](PHASE_0.md)); the resolved source is recorded as `model_source` in
-`phase4_metadata.json`.
-
-### LAMBADA accuracy
-
-When `phase4.lambada.enabled` is true, Phase 4 additionally reports greedy
-final-word accuracy on LAMBADA (`EleutherAI/lambada_openai` by default): the
-prediction counts as correct only when every target-word token is the argmax
-at its position. Accuracy is measured for the digital reference, each nominal
-hybrid, and noisy placements according to `noisy_scope`:
-
-- `realization0` (default): noisy accuracy only at realization 0, preserving
-  fully paired policy/timestep comparisons at one-third of the cost;
-- `all`: every noisy evaluation;
-- `nominal_only`: no noisy accuracy.
-
-The noisy accuracy pass shares the exact materialized weight noise with the
-NLL pass (`evaluate_noisy_placement(..., extra_eval=...)` evaluates it while
-the +Z realization is installed).
-
-Example:
-
-```yaml
-model:
-  name: gpt2
-  device: cpu
-
-phase4:
-  output_root: data/results/phase4_hybrid_quality
-  policies:
-    - random
-    - sequential
-    - hardware_only
-    - static_sensitivity
-  timesteps: [0, 30, 60, 90, 119]
-  num_realizations: 3
-  antithetic: false
-  unavailable_noise_std: 0.080
-  evaluate_budget_types: [greedy_step]
-  evaluate_selection_methods:
-    - greedy_measured_gain_per_cost_per_macs_per_token
-  max_operating_points: 3
-```
-
-The exact selection-method string depends on the Phase 1.5 objective and cost
-field. It must match the value stored in the operating-point artifact.
 
 ## Artifacts
 
-The default output directory contains:
-
 | Artifact | Contents |
 | --- | --- |
-| `hybrid_quality_by_policy.csv` | Every digital-set/timestep/realization/policy evaluation |
-| `nominal_hybrid_frontier.csv` | Digital and nominal-hybrid quality and cost for each selected point |
-| `hybrid_quality_summary.csv` | Mean and standard deviation by digital set and policy, plus a bootstrap 95% interval for tile-noise ΔNLL and `mean_lambada_accuracy` |
-| `paired_policy_summary.csv` | Paired improvements of every `method_policies` entry over every `baseline_policies` entry |
-| `phase4_metadata.json` | Provenance, model source, dataset and LAMBADA metadata, analog settings, references, selected points, and artifact paths |
-| `energy_quality_frontier.csv`, `energy_quality_pareto.png`, `energy_metadata.json` | Post-hoc energy analysis (below) |
-
-During a long run, `hybrid_quality_by_policy.partial.csv` is rewritten when the
-runner leaves each operating-point evaluation, including a partially completed
-point when rows were produced before an error. It is removed after the final
-CSV is written successfully.
-
-Important columns in `hybrid_quality_by_policy.csv` include:
-
-- operating-point identity, selection method, budget, and digital cost;
-- policy, timestep, and realization;
-- noisy, digital, and nominal-hybrid NLL/PPL;
-- total and tile-only quality deltas;
-- the sensitivity-weighted placement proxy;
-- materialized weight-noise RMS;
-- faulted and unavailable shard counts; and
-- predicted token count.
-
-`ppl_from_mean_nll` is `exp(mean_nll)` and is the primary PPL representation.
-When antithetic evaluation is enabled, `ppl_mean` is instead the arithmetic
-mean of the per-sign perplexities.
+| `hybrid_quality_by_policy.csv` | Every timestep/realization/policy evaluation |
+| `nominal_reference.json` | Digital and nominal all-analog quality and their delta |
+| `hybrid_quality_summary.csv` | Per-policy means/stds, descriptive bootstrap interval, mean degraded NLL/PPL |
+| `paired_policy_summary.csv` | Paired improvements of every method policy over every baseline |
+| `phase4_metadata.json` | Provenance, model source, dataset metadata, analog settings, artifact paths |
 
 The paired summary defines, for every configured method/baseline pair:
 
@@ -296,99 +138,50 @@ The paired summary defines, for every configured method/baseline pair:
 NLL improvement = baseline delta_nll_tile - method delta_nll_tile
 ```
 
-A positive value therefore means the method policy produced lower NLL. The
-bootstrap intervals resample paired timestep/realization differences.
+A positive value means the method policy produced lower NLL.
 
 > [!WARNING]
-> Within one run, the 15 timestep × realization samples share a single
+> Within one run, the timestep × realization samples share a single
 > correlated hardware trace, one model, and paired noise fields. The
-> bootstrap intervals in `paired_policy_summary.csv` are therefore
-> **descriptive within-trace spreads, not inferential 95% confidence
-> intervals**. For paper claims, run several trace seeds
-> (`scripts/run_multiseed_pipeline.py`) and aggregate with
+> bootstrap intervals here are **descriptive within-trace spreads, not
+> inferential 95% confidence intervals**. For paper claims, run several
+> trace seeds (`scripts/run_multiseed_pipeline.py`) and aggregate with
 > `scripts/aggregate_multiseed.py`, which treats each independent trace as
 > one statistical unit and reports across-trace t-based intervals.
 
-## Energy analysis
-
-`experiments/phase4_quality/analyze_energy_quality.py` joins the
-quality-versus-budget frontier with a first-order analytical energy model
-(`src/cost/energy_model.py`, constants in the `cost_model` configuration
-section with citations; see [REFERENCES](REFERENCES.md)). Per token, digital
-MACs cost `e_mac_digital_pj` each; each placed analog shard costs one DAC
-drive per input column, one analog MAC per weight, and one ADC conversion
-per output row. The output CSV carries the full energy breakdown next to
-nominal and degraded quality plus a per-policy Pareto flag on
-(total energy, mean degraded NLL); the figure plots degraded PPL against
-energy per token. The pipeline driver runs this automatically after Phase 4
-whenever `cost_model` is present. The model deliberately excludes data
-movement, SRAM, control, and communication — label it as first-order
-wherever it is reported.
-
 ## Sanity checks
-
-After choosing a generated `digital_set_id`, run:
 
 ```bash
 python3 experiments/phase4_quality/run_sanity_checks.py \
   --config configs/full_pipeline/gpt2_hybrid_3dcim.yaml \
   --phase1 data/results/phase1_sensitivity/<profile>.json \
-  --operating-points data/results/phase1_5_digital_selection/digital_operating_points.json \
-  --phase3-manifest data/results/phase3_static_mapping/phase3_manifest.json \
-  --digital-set-id <digital_set_id>
+  --phase3-manifest data/results/phase3_static_mapping/phase3_manifest.json
 ```
 
-This uses at most 4,096 tokens and verifies two invariants:
-
-- zero tile noise reproduces nominal-hybrid NLL for every policy; and
-- uniform tile noise makes NLL invariant to placement policy.
-
-The default tolerance for each NLL check is `1e-6`. Optional unified config
-fields `phase4.sanity_zero_nll_tolerance` and
-`phase4.sanity_uniform_nll_tolerance` can override it.
-
-The temporary digital-module swap machinery also has focused tests:
-
-```bash
-python3 -m pytest -q tests/test_hybrid_digital_swap.py
-```
-
-This test requires an importable AIHWKit installation.
+This uses at most 4,096 tokens and verifies two invariants: zero tile noise
+reproduces the nominal NLL for every policy, and uniform tile noise makes
+NLL invariant to placement policy (default tolerance `1e-6`;
+`phase4.sanity_zero_nll_tolerance` / `phase4.sanity_uniform_nll_tolerance`
+override).
 
 ## Cost and scaling
 
-The number of noisy dataset passes is:
-
-```text
-operating_points × timesteps × realizations × policies × antithetic_signs
-```
-
-The primary configuration can perform 225 full noisy passes
-(3 × 5 × 3 × 5), plus the digital and nominal-hybrid references and — when
-LAMBADA is enabled with the default `realization0` scope — one accuracy pass
-per (point, timestep, policy). Each NLL pass may score the full held-out
-corpus. Start with
-`configs/full_pipeline/gpt2_hybrid_3dcim_smoke.yaml` and confirm the AIHWKit
-contract before launching a paper-scale run.
+The number of noisy dataset passes is `timesteps × realizations × policies`
+— 75 for the primary configuration (5 × 3 × 5), plus the digital and
+nominal references. Each pass scores the full held-out corpus through the
+AIHWKit analog forward path.
 
 ## Interpretation and limitations
 
-- Results measure NLL/PPL under this manually materialized Gaussian noise model;
-  they are not measurements from physical hardware.
-- Static placements are not adapted after drift or faults.
-- Unavailability is approximated as a high noise scale, not zero output,
-  infeasibility, or digital fallback.
-- The main runner does not compute KL divergence, token agreement, latency,
-  energy, communication cost, or migration cost.
-- The placement proxy is diagnostic. Only the forward evaluation measures
-  model-level quality and cross-projection interactions.
-- The language-model head is weight-tied to the embedding in GPT-2. Phase 1.5
-  reports its logical digital execution cost while excluding a duplicate tied
-  copy from incremental storage cost.
-- Model and dataset downloads must already be cached when running offline.
-- No benchmark results are currently committed. Most generated result paths
-  under `data/` are not ignored automatically, so inspect `git status` before
-  committing.
-
-See the [repository README](../README.md) for installation, smoke testing,
-resume commands, and multi-seed execution.
+- Results measure NLL/PPL under the manually materialized Gaussian noise
+  model; they are not measurements from physical hardware.
+- Static placements are not adapted after drift or faults; unavailability is
+  approximated as a high noise scale.
+- AIHWKit partitions each projection internally for I/O quantization
+  (`tile_size`), which does not coincide with the Phase-3 Q/K/V-preserving
+  physical shard boundaries; the partition is identical across placement
+  policies, so paired comparisons are unaffected.
+- The runner does not compute KL divergence, token agreement, latency,
+  energy, communication, or migration cost.
+- The placement proxy column is diagnostic; only the forward evaluation
+  measures model-level quality.

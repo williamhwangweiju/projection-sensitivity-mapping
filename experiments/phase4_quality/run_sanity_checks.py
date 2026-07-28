@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end zero-noise and uniform-noise invariance checks for one digital set."""
+"""Zero-noise and uniform-noise invariance checks for the all-analog hybrid."""
 from __future__ import annotations
 
 import argparse
@@ -31,26 +31,13 @@ def with_uniform_noise(rows: list[dict[str, Any]], value: float) -> list[dict[st
 def main(
     config_path: Path,
     phase1_path: Path,
-    operating_points_path: Path,
     phase3_manifest_path: Path,
-    digital_set_id: str,
     output_path: Path,
 ) -> Path:
     config = load_yaml(config_path)
     phase1_profile = load_json(phase1_path)
-    points = {
-        point["digital_set_id"]: point
-        for point in load_json(operating_points_path)["operating_points"]
-    }
-    if digital_set_id not in points:
-        raise KeyError(f"Unknown digital_set_id: {digital_set_id}")
-    point = points[digital_set_id]
     manifest = load_json(phase3_manifest_path)["placements"]
-    paths = {
-        row["policy"]: Path(row["placement_path"])
-        for row in manifest
-        if row["digital_set_id"] == digital_set_id
-    }
+    paths = {str(row["policy"]): Path(row["placement_path"]) for row in manifest}
     policies = [str(value) for value in config["phase4"]["policies"]]
     missing = set(policies) - set(paths)
     if missing:
@@ -68,7 +55,7 @@ def main(
 
     hybrid = HybridAnalogModel(
         model,
-        digital_projection_ids=point["digital_projection_ids"],
+        digital_projection_ids=[],
         settings=ManualAnalogSettings.from_config(config),
         include_lm_head_candidate=bool(config["profiling"].get("include_lm_head", False)),
         phase1_projection_rows=phase1_profile["projections"],
@@ -110,7 +97,6 @@ def main(
                 f"Uniform-noise invariance failed: NLL spread {uniform_spread:.3e} > {uniform_tolerance:.3e}"
             )
         payload = {
-            "digital_set_id": digital_set_id,
             "nominal_nll": nominal_nll,
             "nominal_ppl": nominal_ppl,
             "zero_noise_nll_by_policy": zero_results,
@@ -123,23 +109,20 @@ def main(
         print(f"Hybrid quality sanity checks passed: {output_path}")
         return output_path
     finally:
-            hybrid.restore_digital_modules()
-            hybrid = None
-            gc.collect()
-
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-                torch.cuda.empty_cache()
-                torch.cuda.ipc_collect()
+        hybrid.restore_digital_modules()
+        hybrid = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--phase1", type=Path, required=True)
-    parser.add_argument("--operating-points", type=Path, required=True)
     parser.add_argument("--phase3-manifest", type=Path, required=True)
-    parser.add_argument("--digital-set-id", required=True)
     parser.add_argument("--output", type=Path, default=REPO_ROOT / "data/results/phase4_hybrid_quality/sanity_checks.json")
     args = parser.parse_args()
-    main(args.config, args.phase1, args.operating_points, args.phase3_manifest, args.digital_set_id, args.output)
+    main(args.config, args.phase1, args.phase3_manifest, args.output)

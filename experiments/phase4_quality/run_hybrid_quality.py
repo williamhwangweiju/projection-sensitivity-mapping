@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate hybrid digital/analog GPT-2 quality for static placement policies."""
+"""Evaluate all-analog GPT-2 quality under every static placement policy."""
 from __future__ import annotations
 
 import argparse
@@ -7,12 +7,12 @@ from collections import defaultdict
 from copy import deepcopy
 import csv
 from datetime import datetime, timezone
-import json
+import gc
 import math
 from pathlib import Path
 import sys
 from typing import Any, Iterable
-import gc
+
 import numpy as np
 import torch
 
@@ -22,8 +22,8 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.common.analog import ManualAnalogSettings, analog_configuration, set_seed
 from src.common.config import file_sha256, git_commit, load_json, load_yaml, resolve_path, save_json
-from src.common.dataset import build_causal_lm_batches, build_lambada_examples
-from src.common.metrics import evaluate_lambada_accuracy, evaluate_nll_ppl, summarize
+from src.common.dataset import build_causal_lm_batches
+from src.common.metrics import evaluate_nll_ppl, summarize
 from src.common.model_loading import load_model_and_tokenizer
 from src.evaluation.aihwkit_gpt2 import HybridAnalogModel
 from src.evaluation.hybrid_quality import (
@@ -52,65 +52,28 @@ def representative_timesteps(trace: Any, requested: Iterable[int] | None) -> lis
     return sorted(values)
 
 
-def select_points(points: list[dict[str, Any]], cfg: dict[str, Any], requested_ids: set[str]) -> list[dict[str, Any]]:
-    selected: list[dict[str, Any]] = []
-    budget_types = set(str(value) for value in cfg.get("evaluate_budget_types", []))
-    methods = set(str(value) for value in cfg.get("evaluate_selection_methods", []))
-    for point in points:
-        if not bool(point.get("capacity_feasible", True)):
-            continue
-        if requested_ids and point["digital_set_id"] not in requested_ids:
-            continue
-        if budget_types and str(point["budget_type"]) not in budget_types:
-            continue
-        method = str(point["selection_method"])
-        if methods and method not in methods:
-            continue
-        selected.append(point)
-    # Deterministic budget order: fewest digital projections first, so the
-    # subset below always spans the frontier from cheapest to final point.
-    selected.sort(
-        key=lambda point: (
-            int(point["digital_projection_count"]),
-            float(point["digital_mac_fraction"]),
-            float(point["digital_parameter_fraction"]),
-            str(point["digital_set_id"]),
-        )
-    )
-    maximum = cfg.get("max_operating_points")
-    if maximum is not None and 0 < int(maximum) < len(selected):
-        indices = np.linspace(0, len(selected) - 1, int(maximum))
-        unique_indices = sorted({int(round(value)) for value in indices})
-        selected = [selected[index] for index in unique_indices]
-    if not selected:
-        raise ValueError("No digital operating points matched the Phase-4 filters.")
-    return selected
-
-
 def _records_for_proxy(
     rows: list[dict[str, Any]],
-    measured_sensitivity: dict[str, float] | None = None,
-    sensitivity_floor: float = 0.0,
+    measured_sensitivity: dict[str, float],
+    sensitivity_floor: float,
 ) -> list[PlacementRecord]:
-    """Build proxy records, optionally re-weighted with measured sensitivity.
+    """Re-weight placement rows with measured Phase-1 sensitivity.
 
     static_fisher placement CSVs carry Fisher importance in their
-    sensitivity/importance columns. For a proxy_variance column that is
-    comparable across policies, every policy's records are re-weighted with
-    the measured Phase-1 sensitivity (floored as in Phase 3) when
-    ``measured_sensitivity`` is provided.
+    sensitivity/importance columns; re-weighting every policy with the
+    measured score keeps the proxy_variance column comparable across
+    policies.
     """
     fields = PlacementRecord.__dataclass_fields__
     records = []
     for row in rows:
         values = {key: row[key] for key in fields}
-        if measured_sensitivity is not None:
-            sensitivity = max(
-                float(measured_sensitivity[str(row["projection_id"])]),
-                float(sensitivity_floor),
-            )
-            values["sensitivity"] = sensitivity
-            values["importance"] = sensitivity * float(row["shard_weight"])
+        sensitivity = max(
+            float(measured_sensitivity[str(row["projection_id"])]),
+            float(sensitivity_floor),
+        )
+        values["sensitivity"] = sensitivity
+        values["importance"] = sensitivity * float(row["shard_weight"])
         records.append(PlacementRecord(**values))
     return records
 
@@ -127,25 +90,21 @@ def _bootstrap_mean_ci(values: list[float], seed: int, samples: int = 4000) -> t
     return float(np.quantile(means, 0.025)), float(np.quantile(means, 0.975))
 
 
-def summarize_rows(rows: list[dict[str, Any]], seed: int) -> list[dict[str, Any]]:
-    groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+def summarize_rows(
+    rows: list[dict[str, Any]], seed: int, digital_nll: float
+) -> list[dict[str, Any]]:
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
-        groups[(str(row["digital_set_id"]), str(row["policy"]))].append(row)
+        groups[str(row["policy"])].append(row)
     output: list[dict[str, Any]] = []
-    for (digital_set_id, policy), group in sorted(groups.items()):
+    for policy, group in sorted(groups.items()):
         delta_total = [float(row["delta_nll_total"]) for row in group]
         delta_tile = [float(row["delta_nll_tile"]) for row in group]
         total_summary = summarize(delta_total)
         tile_summary = summarize(delta_tile)
         lo, hi = _bootstrap_mean_ci(delta_tile, seed)
-        first = group[0]
+        degraded_nll = digital_nll + total_summary["mean"]
         output.append({
-            "digital_set_id": digital_set_id,
-            "selection_method": first["selection_method"],
-            "digital_projection_count": first["digital_projection_count"],
-            "digital_parameter_fraction": first["digital_parameter_fraction"],
-            "digital_incremental_storage_fraction": first.get("digital_incremental_storage_fraction", first["digital_parameter_fraction"]),
-            "digital_mac_fraction": first["digital_mac_fraction"],
             "policy": policy,
             "evaluations": len(group),
             "mean_delta_nll_total": total_summary["mean"],
@@ -154,53 +113,47 @@ def summarize_rows(rows: list[dict[str, Any]], seed: int) -> list[dict[str, Any]
             "std_delta_nll_tile": tile_summary["std"],
             "bootstrap_ci95_delta_nll_tile_low": lo,
             "bootstrap_ci95_delta_nll_tile_high": hi,
-            "mean_ppl": float(np.mean([float(row["ppl_from_mean_nll"]) for row in group])),
+            "mean_degraded_nll": degraded_nll,
+            "mean_degraded_ppl_from_nll": math.exp(degraded_nll),
             "mean_proxy_variance": float(np.mean([float(row["proxy_variance"]) for row in group])),
         })
-        accuracies = [
-            float(row["lambada_accuracy"])
-            for row in group
-            if row.get("lambada_accuracy", "") != ""
-        ]
-        output[-1]["mean_lambada_accuracy"] = (
-            float(np.mean(accuracies)) if accuracies else ""
-        )
-        output[-1]["lambada_evaluations"] = len(accuracies)
     return output
 
 
 def paired_differences(
     rows: list[dict[str, Any]],
     seed: int,
-    method_policies: Iterable[str] = ("static_sensitivity",),
+    method_policies: Iterable[str] = ("static_sensitivity", "static_fisher"),
     baseline_policies: Iterable[str] = ("hardware_only", "sequential", "random"),
 ) -> list[dict[str, Any]]:
-    keyed: dict[tuple[str, int, int], dict[str, dict[str, Any]]] = defaultdict(dict)
+    """Paired within-run comparisons over shared (timestep, realization) noise.
+
+    The bootstrap intervals resample correlated samples from one hardware
+    trace and are descriptive; cross-trace inference lives in
+    scripts/aggregate_multiseed.py.
+    """
+    keyed: dict[tuple[int, int], dict[str, dict[str, Any]]] = defaultdict(dict)
     for row in rows:
-        key = (str(row["digital_set_id"]), int(row["timestep"]), int(row["realization"]))
-        keyed[key][str(row["policy"])] = row
+        keyed[(int(row["timestep"]), int(row["realization"]))][str(row["policy"])] = row
     comparisons = tuple(
         (baseline, method)
         for method in method_policies
         for baseline in baseline_policies
         if baseline != method
     )
-    grouped: dict[tuple[str, str, str], list[float]] = defaultdict(list)
-    wins: dict[tuple[str, str, str], int] = defaultdict(int)
-    for (digital_set_id, _, _), policy_rows in keyed.items():
+    grouped: dict[tuple[str, str], list[float]] = defaultdict(list)
+    wins: dict[tuple[str, str], int] = defaultdict(int)
+    for policy_rows in keyed.values():
         for baseline, method in comparisons:
             if baseline not in policy_rows or method not in policy_rows:
                 continue
             difference = float(policy_rows[baseline]["delta_nll_tile"]) - float(policy_rows[method]["delta_nll_tile"])
-            key = (digital_set_id, baseline, method)
-            grouped[key].append(difference)
-            wins[key] += int(difference > 0)
+            grouped[(baseline, method)].append(difference)
+            wins[(baseline, method)] += int(difference > 0)
     output: list[dict[str, Any]] = []
-    for key, values in sorted(grouped.items()):
-        digital_set_id, baseline, method = key
+    for (baseline, method), values in sorted(grouped.items()):
         lo, hi = _bootstrap_mean_ci(values, seed)
         output.append({
-            "digital_set_id": digital_set_id,
             "baseline_policy": baseline,
             "method_policy": method,
             "paired_samples": len(values),
@@ -209,130 +162,36 @@ def paired_differences(
             "std_nll_improvement": float(np.std(values, ddof=1)) if len(values) > 1 else 0.0,
             "bootstrap_ci95_low": lo,
             "bootstrap_ci95_high": hi,
-            "win_fraction": wins[key] / len(values),
+            "win_fraction": wins[(baseline, method)] / len(values),
         })
-    return output
-
-
-
-def quality_vs_budget_frontier(
-    nominal_rows: list[dict[str, Any]],
-    summaries: list[dict[str, Any]],
-    digital_nll: float,
-    digital_ppl: float,
-) -> list[dict[str, Any]]:
-    """Join the nominal frontier with degraded per-policy summaries.
-
-    One row per (operating point, policy) with the budget axis, the nominal
-    hybrid quality, and the mean degraded quality side by side, so the
-    quality-versus-budget figure can be plotted from a single artifact.
-    Degraded PPL is derived from mean NLL (a geometric-style mean), which is
-    robust to the exponential blow-ups that dominate arithmetic PPL means.
-    """
-    nominal_by_id = {str(row["digital_set_id"]): row for row in nominal_rows}
-    output: list[dict[str, Any]] = []
-    for summary in summaries:
-        digital_set_id = str(summary["digital_set_id"])
-        nominal = nominal_by_id.get(digital_set_id)
-        if nominal is None:
-            continue
-        degraded_nll = digital_nll + float(summary["mean_delta_nll_total"])
-        output.append({
-            "digital_set_id": digital_set_id,
-            "selection_method": summary["selection_method"],
-            "digital_projection_count": summary["digital_projection_count"],
-            "digital_mac_fraction": summary["digital_mac_fraction"],
-            "digital_parameter_fraction": summary["digital_parameter_fraction"],
-            "digital_incremental_storage_fraction": summary[
-                "digital_incremental_storage_fraction"
-            ],
-            "policy": summary["policy"],
-            "evaluations": summary["evaluations"],
-            "digital_nll": digital_nll,
-            "digital_ppl": digital_ppl,
-            "nominal_hybrid_nll": nominal["nominal_hybrid_nll"],
-            "nominal_hybrid_ppl": nominal["nominal_hybrid_ppl"],
-            "delta_nll_nominal_vs_digital": nominal["delta_nll_nominal_vs_digital"],
-            "mean_delta_nll_total": summary["mean_delta_nll_total"],
-            "mean_delta_nll_tile": summary["mean_delta_nll_tile"],
-            "bootstrap_ci95_delta_nll_tile_low": summary[
-                "bootstrap_ci95_delta_nll_tile_low"
-            ],
-            "bootstrap_ci95_delta_nll_tile_high": summary[
-                "bootstrap_ci95_delta_nll_tile_high"
-            ],
-            "mean_degraded_nll": degraded_nll,
-            "mean_degraded_ppl_from_nll": math.exp(degraded_nll),
-        })
-    output.sort(key=lambda row: (float(row["digital_mac_fraction"]), str(row["policy"])))
     return output
 
 
 def main(
     config_path: Path,
     phase1_path: Path,
-    operating_points_path: Path,
     trace_path: Path,
     phase3_manifest_path: Path,
-    requested_ids: set[str] | None = None,
 ) -> Path:
     config = load_yaml(config_path)
     cfg = config["phase4"]
     seed = int(config["experiment"]["seed"])
     set_seed(seed)
     profile = load_json(phase1_path)
-    operating_points = load_json(operating_points_path)["operating_points"]
-    points = select_points(operating_points, cfg, requested_ids or set())
     manifest_payload = load_json(phase3_manifest_path)
-    manifest = manifest_payload["placements"]
-    available_point_ids = {str(row["digital_set_id"]) for row in manifest}
-    dropped = [
-        point for point in points
-        if str(point["digital_set_id"]) not in available_point_ids
-    ]
-    if dropped:
-        # Placements missing for selected points almost always means Phase 3
-        # ran against an older operating-point artifact. Never drop silently.
-        print(
-            "WARNING: dropping "
-            f"{len(dropped)} selected operating point(s) with no Phase-3 "
-            "placements (stale phase3_manifest? rerun Phase 3):"
-        )
-        for point in dropped:
-            print(
-                f"  {point['digital_set_id']} | method={point['selection_method']} "
-                f"| digital_projections={point['digital_projection_count']}"
-            )
-    points = [point for point in points if str(point["digital_set_id"]) in available_point_ids]
-    if not points:
-        raise ValueError("All selected Phase-4 operating points were capacity-infeasible or lacked placements.")
-
-    # Every selected operating point is evaluated. Within each point the four
-    # policies compare placements for one identical analog projection set, and
-    # phase4.max_operating_points controls how many points span the
-    # quality-versus-budget frontier (evenly spaced, endpoints included).
-    print(f"Phase 4 evaluating {len(points)} digital operating point(s):")
-    for point in points:
-        print(
-            f"  {point['digital_set_id']} | "
-            f"digital_projections={point['digital_projection_count']} | "
-            f"digital_mac_fraction={point['digital_mac_fraction']:.6f}"
-        )
-
-    points_by_id = {point["digital_set_id"]: point for point in points}
     placement_paths = {
-        (row["digital_set_id"], row["policy"]): Path(row["placement_path"])
-        for row in manifest
-        if row["digital_set_id"] in points_by_id
+        str(row["policy"]): Path(row["placement_path"])
+        for row in manifest_payload["placements"]
     }
-    # Placements are static within Phase 4. Parse each CSV once rather than on
-    # every timestep/realization, which materially reduces overhead in long runs.
-    placement_cache = {
-        key: read_placement_csv(path) for key, path in placement_paths.items()
-    }
+
     trace = load_trace(str(trace_path))
     timesteps = representative_timesteps(trace, cfg.get("timesteps"))
     policies = [str(value) for value in cfg["policies"]]
+    missing = sorted(set(policies) - set(placement_paths))
+    if missing:
+        raise FileNotFoundError(f"Missing Phase-3 placements for policies: {missing}")
+    # Placements are static within Phase 4; parse each CSV once.
+    placement_cache = {policy: read_placement_csv(placement_paths[policy]) for policy in policies}
     realizations = int(cfg["num_realizations"])
     antithetic = bool(cfg.get("antithetic", False))
     unavailable_noise_std = float(cfg.get("unavailable_noise_std", config["phase2"]["fidelity_model"]["max_noise_std"]))
@@ -344,34 +203,9 @@ def main(
     evaluation_config["dataset"] = deepcopy(config.get("evaluation_dataset", config["dataset"]))
     batches, dataset_metadata = build_causal_lm_batches(evaluation_config, tokenizer)
     digital_nll, digital_ppl, token_count = evaluate_nll_ppl(model, batches, device)
+    print(f"Digital reference: NLL={digital_nll:.6f} PPL={digital_ppl:.4f}")
 
-    # Optional LAMBADA final-word accuracy alongside NLL/PPL.
-    lambada_cfg = cfg.get("lambada", {})
-    lambada_enabled = bool(lambada_cfg.get("enabled", False))
-    lambada_examples: list[dict[str, Any]] = []
-    lambada_metadata: dict[str, Any] | None = None
-    lambada_batch_size = int(lambada_cfg.get("batch_size", 8))
-    lambada_scope = str(lambada_cfg.get("noisy_scope", "realization0"))
-    if lambada_scope not in {"realization0", "all", "nominal_only"}:
-        raise ValueError("phase4.lambada.noisy_scope must be realization0, all, or nominal_only.")
-    digital_lambada_accuracy: float | None = None
-    if lambada_enabled:
-        lambada_examples, lambada_metadata = build_lambada_examples(lambada_cfg, tokenizer)
-        digital_lambada_accuracy, _ = evaluate_lambada_accuracy(
-            model, lambada_examples, device, batch_size=lambada_batch_size
-        )
-        print(
-            f"Digital LAMBADA accuracy: {digital_lambada_accuracy:.4f} "
-            f"({lambada_metadata['num_examples']} examples)"
-        )
-
-    def lambada_extra_eval(noised_model: Any) -> dict[str, float]:
-        accuracy, _ = evaluate_lambada_accuracy(
-            noised_model, lambada_examples, device, batch_size=lambada_batch_size
-        )
-        return {"lambada_accuracy": accuracy}
-
-    # Release every torch-cached block from the reference evaluations before
+    # Release every torch-cached block from the reference evaluation before
     # AIHWKit allocates its tiles: RPUCuda uses raw cudaMalloc/cuBLAS outside
     # torch's caching allocator, and reserved-but-unused torch memory has
     # caused CUBLAS initialization failures at the first tile conversion.
@@ -382,207 +216,137 @@ def main(
 
     settings = ManualAnalogSettings.from_config(config)
     settings.validate()
-    # Measured Phase-1 sensitivity per projection, for a policy-comparable
-    # proxy_variance column (static_fisher CSVs store Fisher importance).
     measured_sensitivity = {
         str(row["projection_id"]): float(row["sensitivity_score_for_mapping"])
         for row in profile["projections"]
     }
     proxy_floor = float(config.get("phase3", {}).get("sensitivity_floor", 0.0))
+    output_root = resolve_path(cfg["output_root"])
+    output_root.mkdir(parents=True, exist_ok=True)
     all_rows: list[dict[str, Any]] = []
 
-    # Resume from the crash-checkpoint CSV: completed (set, policy, timestep,
-    # realization) evaluations are loaded and skipped, so a preempted session
-    # repeats at most one timestep block. Noise fields are keyed by seed,
-    # projection, and realization, so skipping is order-independent.
-    partial_path = resolve_path(cfg["output_root"]) / "hybrid_quality_by_policy.partial.csv"
-    completed: set[tuple[str, str, int, int]] = set()
+    # Resume from the crash-checkpoint CSV: completed (policy, timestep,
+    # realization) evaluations are loaded and skipped. Noise fields are keyed
+    # by seed, projection, and realization, so skipping is order-independent.
+    partial_path = output_root / "hybrid_quality_by_policy.partial.csv"
+    completed: set[tuple[str, int, int]] = set()
     if partial_path.is_file():
         with partial_path.open("r", newline="", encoding="utf-8") as stream:
-            loaded = [
-                row
-                for row in csv.DictReader(stream)
-                if str(row.get("digital_set_id")) in points_by_id
-            ]
+            loaded = list(csv.DictReader(stream))
         if loaded:
             all_rows.extend(loaded)
             completed = {
-                (
-                    str(row["digital_set_id"]),
-                    str(row["policy"]),
-                    int(row["timestep"]),
-                    int(row["realization"]),
-                )
+                (str(row["policy"]), int(row["timestep"]), int(row["realization"]))
                 for row in loaded
             }
             print(
                 f"Resuming Phase 4: {len(loaded)} completed evaluation(s) "
                 f"loaded from {partial_path.name}."
             )
-    nominal_rows: list[dict[str, Any]] = []
-    for point in points:
-        digital_set_id = str(point["digital_set_id"])
-        hybrid = HybridAnalogModel(
-            model,
-            digital_projection_ids=point["digital_projection_ids"],
-            settings=settings,
-            include_lm_head_candidate=bool(config["profiling"].get("include_lm_head", False)),
-            phase1_projection_rows=profile["projections"],
-        ).convert()
-        try:
-            nominal_nll, nominal_ppl, _ = evaluate_nominal_hybrid(hybrid, batches, device)
-            nominal_lambada_accuracy: float | None = None
-            if lambada_enabled:
-                # evaluate_nominal_hybrid leaves the nominal weights installed.
-                nominal_lambada_accuracy, _ = evaluate_lambada_accuracy(
-                    hybrid.model, lambada_examples, device, batch_size=lambada_batch_size
-                )
-            nominal_rows.append({
-                "digital_set_id": digital_set_id,
-                "selection_method": point["selection_method"],
-                "digital_projection_ids": ";".join(point["digital_projection_ids"]),
-                "digital_projection_count": point["digital_projection_count"],
-                "digital_parameter_fraction": point["digital_parameter_fraction"],
-                "digital_incremental_storage_fraction": point.get("digital_incremental_storage_fraction", point["digital_parameter_fraction"]),
-                "digital_mac_fraction": point["digital_mac_fraction"],
-                "digital_nll": digital_nll,
-                "digital_ppl": digital_ppl,
-                "nominal_hybrid_nll": nominal_nll,
-                "nominal_hybrid_ppl": nominal_ppl,
-                "delta_nll_nominal_vs_digital": nominal_nll - digital_nll,
-                "delta_ppl_nominal_vs_digital": nominal_ppl - digital_ppl,
-                "analog_projection_count": len(hybrid.analog_projection_ids),
-                "digital_lambada_accuracy": (
-                    "" if digital_lambada_accuracy is None else digital_lambada_accuracy
-                ),
-                "nominal_lambada_accuracy": (
-                    "" if nominal_lambada_accuracy is None else nominal_lambada_accuracy
-                ),
-            })
-            for timestep in timesteps:
-                current_noise = np.asarray(trace.noise_std[timestep], dtype=np.float64).copy()
-                unavailable = ~np.asarray(trace.available[timestep], dtype=bool)
-                current_noise[unavailable] = unavailable_noise_std
-                for realization in range(realizations):
-                    for policy in policies:
-                        if (digital_set_id, policy, timestep, realization) in completed:
-                            continue
-                        static_rows = placement_cache.get((digital_set_id, policy))
-                        if static_rows is None:
-                            raise FileNotFoundError(
-                                f"Missing Phase-3 placement for {digital_set_id}/{policy}."
-                            )
-                        current_rows = update_placement_noise(static_rows, current_noise, timestep)
-                        include_lambada = lambada_enabled and (
-                            lambada_scope == "all"
-                            or (lambada_scope == "realization0" and realization == 0)
-                        )
-                        result = evaluate_noisy_placement(
-                            hybrid,
-                            batches,
-                            device,
-                            current_rows,
-                            base_seed=seed,
-                            realization=realization,
-                            antithetic=antithetic,
-                            extra_eval=lambada_extra_eval if include_lambada else None,
-                        )
-                        unavailable_shards = sum(
-                            int(not bool(trace.available[timestep, int(row["tile_id"])]))
-                            for row in current_rows
-                        )
-                        faulted_shards = sum(
-                            int(bool(trace.faulted[timestep, int(row["tile_id"])]))
-                            for row in current_rows
-                        )
-                        proxy = placement_proxy(
-                            _records_for_proxy(
-                                current_rows, measured_sensitivity, proxy_floor
-                            ),
-                            variance=True,
-                        )
-                        row = {
-                            "digital_set_id": digital_set_id,
-                            "selection_method": point["selection_method"],
-                            "budget_type": point["budget_type"],
-                            "budget_value": point["budget_value"],
-                            "digital_projection_count": point["digital_projection_count"],
-                            "digital_parameter_fraction": point["digital_parameter_fraction"],
-                            "digital_incremental_storage_fraction": point.get("digital_incremental_storage_fraction", point["digital_parameter_fraction"]),
-                            "digital_mac_fraction": point["digital_mac_fraction"],
-                            "policy": policy,
-                            "timestep": timestep,
-                            "realization": realization,
-                            "nll": result["nll"],
-                            "ppl_from_mean_nll": result["ppl_from_mean_nll"],
-                            "ppl_mean": result["ppl_mean"],
-                            "digital_nll": digital_nll,
-                            "digital_ppl": digital_ppl,
-                            "nominal_hybrid_nll": nominal_nll,
-                            "nominal_hybrid_ppl": nominal_ppl,
-                            "delta_nll_total": result["nll"] - digital_nll,
-                            "delta_ppl_total": result["ppl_from_mean_nll"] - digital_ppl,
-                            "delta_nll_tile": result["nll"] - nominal_nll,
-                            "delta_ppl_tile": result["ppl_from_mean_nll"] - nominal_ppl,
-                            "proxy_variance": proxy,
-                            "injected_noise_rms": result["injected_noise_rms"],
-                            "faulted_shards": faulted_shards,
-                            "unavailable_shards": unavailable_shards,
-                            "predicted_tokens": int(result["predicted_tokens"]),
-                            "lambada_accuracy": result.get("lambada_accuracy", ""),
-                        }
-                        all_rows.append(row)
-                        print(
-                            f"digital={digital_set_id} t={timestep} real={realization} "
-                            f"policy={policy} NLL={row['nll']:.6f} "
-                            f"DeltaNLL(total)={row['delta_nll_total']:.6f} "
-                            f"DeltaNLL(tile)={row['delta_nll_tile']:.6f}"
-                        )
-                # Checkpoint after every completed timestep block so a
-                # preempted session loses at most one timestep of work.
-                if all_rows:
-                    write_csv(partial_path, all_rows)
-        finally:
-            hybrid.restore_digital_modules()
-            hybrid = None
-            gc.collect()
 
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-                torch.cuda.empty_cache()
-                torch.cuda.ipc_collect()
-
-            output_root = resolve_path(cfg["output_root"])
-            output_root.mkdir(parents=True, exist_ok=True)
-
-            # Guard against an empty checkpoint write: failing before the
-            # first row would otherwise raise here and mask the original
-            # exception.
+    # The deployment is all-analog: every profiled projection converts.
+    hybrid = HybridAnalogModel(
+        model,
+        digital_projection_ids=[],
+        settings=settings,
+        include_lm_head_candidate=bool(config["profiling"].get("include_lm_head", False)),
+        phase1_projection_rows=profile["projections"],
+    ).convert()
+    try:
+        nominal_nll, nominal_ppl, _ = evaluate_nominal_hybrid(hybrid, batches, device)
+        nominal_record = {
+            "analog_projection_count": len(hybrid.analog_projection_ids),
+            "digital_nll": digital_nll,
+            "digital_ppl": digital_ppl,
+            "nominal_hybrid_nll": nominal_nll,
+            "nominal_hybrid_ppl": nominal_ppl,
+            "delta_nll_nominal_vs_digital": nominal_nll - digital_nll,
+            "delta_ppl_nominal_vs_digital": nominal_ppl - digital_ppl,
+        }
+        print(
+            f"Nominal all-analog hybrid: NLL={nominal_nll:.6f} PPL={nominal_ppl:.4f} "
+            f"(delta vs digital {nominal_nll - digital_nll:+.6f})"
+        )
+        for timestep in timesteps:
+            current_noise = np.asarray(trace.noise_std[timestep], dtype=np.float64).copy()
+            unavailable = ~np.asarray(trace.available[timestep], dtype=bool)
+            current_noise[unavailable] = unavailable_noise_std
+            for realization in range(realizations):
+                for policy in policies:
+                    if (policy, timestep, realization) in completed:
+                        continue
+                    current_rows = update_placement_noise(
+                        placement_cache[policy], current_noise, timestep
+                    )
+                    result = evaluate_noisy_placement(
+                        hybrid,
+                        batches,
+                        device,
+                        current_rows,
+                        base_seed=seed,
+                        realization=realization,
+                        antithetic=antithetic,
+                    )
+                    unavailable_shards = sum(
+                        int(not bool(trace.available[timestep, int(row["tile_id"])]))
+                        for row in current_rows
+                    )
+                    faulted_shards = sum(
+                        int(bool(trace.faulted[timestep, int(row["tile_id"])]))
+                        for row in current_rows
+                    )
+                    proxy = placement_proxy(
+                        _records_for_proxy(current_rows, measured_sensitivity, proxy_floor),
+                        variance=True,
+                    )
+                    row = {
+                        "policy": policy,
+                        "timestep": timestep,
+                        "realization": realization,
+                        "nll": result["nll"],
+                        "ppl_from_mean_nll": result["ppl_from_mean_nll"],
+                        "ppl_mean": result["ppl_mean"],
+                        "digital_nll": digital_nll,
+                        "digital_ppl": digital_ppl,
+                        "nominal_hybrid_nll": nominal_nll,
+                        "nominal_hybrid_ppl": nominal_ppl,
+                        "delta_nll_total": result["nll"] - digital_nll,
+                        "delta_ppl_total": result["ppl_from_mean_nll"] - digital_ppl,
+                        "delta_nll_tile": result["nll"] - nominal_nll,
+                        "delta_ppl_tile": result["ppl_from_mean_nll"] - nominal_ppl,
+                        "proxy_variance": proxy,
+                        "injected_noise_rms": result["injected_noise_rms"],
+                        "faulted_shards": faulted_shards,
+                        "unavailable_shards": unavailable_shards,
+                        "predicted_tokens": int(result["predicted_tokens"]),
+                    }
+                    all_rows.append(row)
+                    print(
+                        f"t={timestep} real={realization} policy={policy} "
+                        f"NLL={row['nll']:.6f} "
+                        f"DeltaNLL(total)={row['delta_nll_total']:.6f} "
+                        f"DeltaNLL(tile)={row['delta_nll_tile']:.6f}"
+                    )
+            # Checkpoint after every completed timestep block so a preempted
+            # session loses at most one timestep of work.
             if all_rows:
-                write_csv(
-                    output_root / "hybrid_quality_by_policy.partial.csv",
-                    all_rows,
-                )
+                write_csv(partial_path, all_rows)
+    finally:
+        hybrid.restore_digital_modules()
+        hybrid = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+        if all_rows:
+            write_csv(partial_path, all_rows)
 
-    output_root = resolve_path(cfg["output_root"])
-    output_root.mkdir(parents=True, exist_ok=True)
     quality_path = write_csv(output_root / "hybrid_quality_by_policy.csv", all_rows)
-    # The partial file is a crash checkpoint written after each operating
-    # point; once the final artifact exists it is redundant and would only
-    # confuse later analysis, so remove it.
-    (output_root / "hybrid_quality_by_policy.partial.csv").unlink(missing_ok=True)
-    nominal_path = write_csv(output_root / "nominal_hybrid_frontier.csv", nominal_rows)
-    summaries = summarize_rows(all_rows, seed)
+    partial_path.unlink(missing_ok=True)
+    nominal_path = save_json(output_root / "nominal_reference.json", nominal_record)
+    summaries = summarize_rows(all_rows, seed, float(digital_nll))
     summary_path = write_csv(output_root / "hybrid_quality_summary.csv", summaries)
-    frontier_rows = quality_vs_budget_frontier(
-        nominal_rows,
-        summaries,
-        digital_nll=float(digital_nll),
-        digital_ppl=float(digital_ppl),
-    )
-    frontier_path = write_csv(
-        output_root / "quality_vs_budget_frontier.csv", frontier_rows
-    )
     method_policies = [
         str(value)
         for value in cfg.get("method_policies", ["static_sensitivity", "static_fisher"])
@@ -604,27 +368,23 @@ def main(
         "config_path": str(config_path),
         "config_sha256": file_sha256(config_path),
         "phase1_path": str(phase1_path),
-        "operating_points_path": str(operating_points_path),
         "trace_path": str(trace_path),
         "phase3_manifest_path": str(phase3_manifest_path),
         "digital_reference": {
             "nll": digital_nll,
             "ppl": digital_ppl,
             "predicted_tokens": token_count,
-            "lambada_accuracy": digital_lambada_accuracy,
         },
+        "nominal_reference": nominal_record,
         "model_source": model_source,
         "dataset": dataset_metadata,
-        "lambada": lambada_metadata,
         "analog_configuration": analog_configuration(settings),
-        "evaluated_digital_set_ids": [point["digital_set_id"] for point in points],
         "timesteps": timesteps,
         "realizations": realizations,
         "antithetic": antithetic,
         "artifacts": {
             "quality": str(quality_path),
-            "nominal_frontier": str(nominal_path),
-            "quality_vs_budget_frontier": str(frontier_path),
+            "nominal_reference": str(nominal_path),
             "summary": str(summary_path),
             "paired_summary": None if paired_path is None else str(paired_path),
         },
@@ -632,20 +392,12 @@ def main(
     print(f"Phase 4 complete: {metadata_path}")
     return metadata_path
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, default=REPO_ROOT / "configs/full_pipeline/gpt2_hybrid_3dcim.yaml")
     parser.add_argument("--phase1", type=Path, required=True)
-    parser.add_argument("--operating-points", type=Path, required=True)
     parser.add_argument("--trace", type=Path, required=True)
     parser.add_argument("--phase3-manifest", type=Path, required=True)
-    parser.add_argument("--digital-set-id", action="append", default=[])
     args = parser.parse_args()
-    main(
-        args.config,
-        args.phase1,
-        args.operating_points,
-        args.trace,
-        args.phase3_manifest,
-        set(args.digital_set_id),
-    )
+    main(args.config, args.phase1, args.trace, args.phase3_manifest)

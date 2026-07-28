@@ -46,18 +46,22 @@ def per_trace_paired_means(
     rows: list[dict[str, str]],
     method_policies: list[str],
     baseline_policies: list[str],
-) -> dict[tuple[str, str, str], float]:
-    """Mean paired delta_nll_tile improvement per (set, baseline, method)."""
-    keyed: dict[tuple[str, int, int], dict[str, float]] = defaultdict(dict)
+) -> dict[tuple[str, str], float]:
+    """Mean paired delta_nll_tile improvement per (baseline, method).
+
+    The study evaluates one all-analog deployment per trace; a legacy
+    digital_set_id column (older row format) is ignored.
+    """
+    keyed: dict[tuple[int, int], dict[str, float]] = defaultdict(dict)
     for row in rows:
-        key = (str(row["digital_set_id"]), int(row["timestep"]), int(row["realization"]))
+        key = (int(row["timestep"]), int(row["realization"]))
         keyed[key][str(row["policy"])] = float(row["delta_nll_tile"])
-    sums: dict[tuple[str, str, str], list[float]] = defaultdict(list)
-    for (digital_set_id, _, _), policies in keyed.items():
+    sums: dict[tuple[str, str], list[float]] = defaultdict(list)
+    for policies in keyed.values():
         for method in method_policies:
             for baseline in baseline_policies:
                 if method in policies and baseline in policies and method != baseline:
-                    sums[(digital_set_id, baseline, method)].append(
+                    sums[(baseline, method)].append(
                         policies[baseline] - policies[method]
                     )
     return {key: sum(values) / len(values) for key, values in sums.items() if values}
@@ -76,7 +80,7 @@ def main(
     if not runs:
         raise ValueError(f"No runs listed in {manifest_path}.")
 
-    per_trace: dict[tuple[str, str, str], dict[int, float]] = defaultdict(dict)
+    per_trace: dict[tuple[str, str], dict[int, float]] = defaultdict(dict)
     for run in runs:
         trace_seed = int(run["trace_seed"])
         quality_csv = Path(run["output_root"]) / "phase4" / "hybrid_quality_by_policy.csv"
@@ -91,7 +95,7 @@ def main(
             per_trace[key][trace_seed] = value
 
     output_rows: list[dict[str, Any]] = []
-    for (digital_set_id, baseline, method), by_seed in sorted(per_trace.items()):
+    for (baseline, method), by_seed in sorted(per_trace.items()):
         values = [by_seed[seed] for seed in sorted(by_seed)]
         n = len(values)
         mean = sum(values) / n
@@ -100,7 +104,6 @@ def main(
         margin = t_quantile(n - 1) * sem if n > 1 else math.nan
         output_rows.append(
             {
-                "digital_set_id": digital_set_id,
                 "baseline_policy": baseline,
                 "method_policy": method,
                 "trace_seeds": ";".join(str(seed) for seed in sorted(by_seed)),

@@ -1,10 +1,13 @@
-# Automatic hybrid digital–analog GPT-2 × AIHWKit × heterogeneous 3D-CIM pipeline.
+# All-analog GPT-2 deployment on a heterogeneous 3D compute-in-memory
+# substrate: hardware-aware fine-tuning (Phase 0), projection-sensitivity
+# profiling (Phase 1) with a gradient-proxy sidecar, tile-fidelity simulation
+# (Phase 2), static placement policies (Phase 3), and held-out quality
+# evaluation (Phase 4).
 #
-# No projection is hard-coded as digital. Phase 1 profiles every transformer
-# projection and the tied LM head. Phase 1.5 then starts from the all-analog
-# candidate model and greedily promotes the projection with the largest measured
-# nominal-hybrid NLL improvement per digital MAC until the configured quality
-# target or budget is reached.
+# This is the paper configuration. For an independent hardware trace, change
+# experiment.seed (scripts/run_multiseed_pipeline.py automates this and
+# reuses Phases 0-1). For the PTQ contrast, set hwa_training.enabled: false
+# and model.checkpoint: null.
 
 experiment:
   seed: 42
@@ -13,15 +16,13 @@ experiment:
 model:
   name: gpt2
   device: cpu  # set to cuda in Colab
-  # Phase 0 hardware-aware checkpoint (save_pretrained directory). null loads
-  # the pretrained Hugging Face weights (PTQ contrast configuration).
+  # Phase 0 hardware-aware checkpoint (save_pretrained directory).
+  # null loads pretrained Hugging Face weights (PTQ contrast).
   checkpoint: data/results/phase0_hwa_training/gpt2/checkpoint_final
 
-# Phase 0: hardware-aware noise-injection fine-tuning. The model is trained
-# with forward-time clip + Gaussian weight noise on every analog-candidate
-# projection (perturb-forward/clean-update, Joshi et al. 2020), producing the
-# checkpoint referenced by model.checkpoint. Vanilla-PTQ contrast runs set
-# hwa_training.enabled: false and model.checkpoint: null.
+# Phase 0: hardware-aware noise-injection fine-tuning. Forward-time clip and
+# Gaussian weight noise on every analog projection with clean-weight updates
+# (perturb-forward/clean-update, Joshi et al. 2020; see docs/PHASE_0.md).
 hwa_training:
   enabled: true
   output_root: data/results/phase0_hwa_training/gpt2
@@ -44,9 +45,9 @@ hwa_training:
   precision: bf16  # bf16 requires cuda; falls back to fp32 on cpu
   seed: 42
   noise:
-    # Uniform per projection per micro-batch. 2x the deployment reference
-    # (analog.reference_noise_std = 0.023) covers the Phase-2 tile multiplier
-    # span (0.65-1.70x); the zero end anchors clean quality.
+    # Uniform per projection per micro-batch; spans zero to twice the
+    # deployment reference (analog.reference_noise_std = 0.023), covering
+    # the Phase-2 tile multiplier range.
     noise_std_range: [0.0, 0.046]
     clip_in_forward: true
     include_lm_head: true
@@ -56,7 +57,7 @@ hwa_training:
   eval_every_steps: 250
   eval_max_tokens: 65536
 
-# Phase 1 sensitivity calibration data.
+# Phase 1 sensitivity calibration data (WikiText validation).
 dataset:
   name: Salesforce/wikitext
   config: wikitext-103-raw-v1
@@ -68,20 +69,7 @@ dataset:
   document_separator: "\n\n"
   drop_incomplete_final_sequence: true
 
-# Smaller calibration subset used by measured digital-set search. This remains
-# separate from the held-out test set used for final Phase 4/5 reporting.
-digital_selection_dataset:
-  name: Salesforce/wikitext
-  config: wikitext-103-raw-v1
-  split: validation
-  sequence_length: 1024
-  stride: 1024
-  batch_size: 1
-  max_tokens: 65536
-  document_separator: "\n\n"
-  drop_incomplete_final_sequence: true
-
-# Held-out final evaluation data.
+# Held-out final evaluation data (WikiText test).
 evaluation_dataset:
   name: Salesforce/wikitext
   config: wikitext-103-raw-v1
@@ -93,10 +81,9 @@ evaluation_dataset:
   document_separator: "\n\n"
   drop_incomplete_final_sequence: true
 
-# 96×8 provides 768 physical tiers. GPT-2 Small requires 480 transformer shards
-# plus 198 LM-head shards at 512×512, so all 49 candidates can initially remain
-# analog. A smaller substrate would make capacity part of the digital-selection
-# decision and could indirectly force the LM head digital.
+# 96x8 provides 768 physical tiers. GPT-2 Small requires 480 transformer
+# shards plus 198 LM-head shards at 512x512, so the full candidate set
+# deploys analog.
 hardware:
   num_tiles: 96
   tiers_per_tile: 8
@@ -126,66 +113,26 @@ profiling:
   seed_stride: 1
   profile_blocks: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
   antithetic: true
-  sensitivity_field: delta_nll_noise_mean
-  sensitivity_unit: delta_nll_noise
-  # Cheap gradient/magnitude proxy scores (run_proxy_sensitivity.py): enables
-  # the fisher/magnitude selection baselines and the static_fisher placement
-  # policy, and reports Spearman rank correlation against the measured score.
+  # Gradient-square/magnitude proxy scores (run_proxy_sensitivity.py):
+  # supply the static_fisher placement channel and the Spearman rank
+  # correlation against the measured score.
   proxy:
     enabled: true
     max_batches: 32
 
-# Phase 1.5: automatic measured digital-set selection.
-digital_selection:
-  output_root: data/results/phase1_5_digital_selection
-
-  # Intentionally empty. Every profiled projection, including lm_head, begins as
-  # an analog candidate and must earn digital execution through measured gain.
-  forced_digital: []
-  
-  # All-analog deployment study: Phase 1.5 degenerates to one explicit
-  # operating point with no digital protection (pure arithmetic, no model
-  # passes). The budget machinery (sensitivity_rank / fisher_rank /
-  # magnitude_rank / measured greedy) remains available via configuration
-  # for follow-up studies but is out of the paper scope: hardware-aware
-  # training makes the nominal all-analog hybrid match the digital
-  # reference, so digital protection is a placement-shrinking cost, not a
-  # necessity.
-  methods: []
-  budgets:
-    projection_counts: []
-    parameter_fractions: []
-    mac_fractions: []
-  explicit_sets:
-    all_analog: []
-
-  greedy_marginal:
-    # Disabled for the all-analog study; Phase 4 reports the nominal-vs-
-    # digital delta itself, so no measured selection passes are needed.
-    enabled: false
-    forced_digital: []
-    # null means evaluate every remaining projection at every greedy step.
-    candidate_pool_size: null
-    max_promotions: 12
-    objective: gain_per_cost
-    cost_field: macs_per_token
-    target_delta_nll_vs_digital: 0.10
-    minimum_marginal_nll_gain: 0.0
-    max_digital_mac_fraction: 0.50
-    max_digital_parameter_fraction: 0.50
-
 phase2:
   name: mixed_96x8
   output_root: data/results/phase2_fidelity/fidelity_traces
-  # Parameter provenance (docs/PHASE_2.md#parameter-provenance, docs/REFERENCES.md):
+  # Parameter provenance (docs/PHASE_2.md#parameter-provenance): these are
+  # literature-motivated scenario values, not device-calibrated parameters.
   # - reference_noise_std 0.023: PCM programming noise, a few % of the
   #   conductance range (Joshi et al., Nat. Commun. 2020).
   # - class multipliers 0.65-1.70: device/array-to-array spread (Joshi 2020;
   #   Nandakumar 2019).
-  # - gradual_drift 0.12-0.35 over 120 steps: sigma(t)/sigma(0) ~ (t/t0)^nu
-  #   with nu ~ 0.03-0.06 (Le Gallo et al., PCM drift).
-  # - thermal correlation 0.94 / sd 0.05: spatially correlated cross-chip
-  #   variation (Wan et al., Nature 2022).
+  # - gradual_drift 0.12-0.35 over 120 steps: consistent with PCM drift
+  #   exponents nu ~ 0.03-0.1 for plausible window durations (Le Gallo).
+  # - group-correlated AR(1) variation motivated by cross-chip variation
+  #   (Wan et al., Nature 2022).
   fidelity_model:
     num_timesteps: 120
     reference_noise_std: 0.023
@@ -226,7 +173,7 @@ phase3:
     - sequential
     - hardware_only
     - static_sensitivity
-    - static_fisher   # importance from the Fisher proxy (requires profiling.proxy)
+    - static_fisher   # importance from the gradient proxy (profiling.proxy)
 
 phase4:
   output_root: data/results/phase4_hybrid_quality
@@ -239,38 +186,7 @@ phase4:
   # Paired-summary comparisons: every method policy against every baseline.
   method_policies: [static_sensitivity, static_fisher]
   baseline_policies: [random, sequential, hardware_only]
-  # LAMBADA final-word accuracy alongside NLL/PPL. noisy_scope realization0
-  # keeps policy/timestep comparisons fully paired at one-third the cost of
-  # scoring every realization.
-  lambada:
-    enabled: true
-    name: EleutherAI/lambada_openai
-    config: en
-    split: test
-    max_examples: 1000
-    batch_size: 8
-    noisy_scope: realization0
   timesteps: [0, 30, 60, 90, 119]
   num_realizations: 3
   antithetic: false
   unavailable_noise_std: 0.080
-
-  # Evaluate the automatically discovered nested digital sets only.
-  evaluate_budget_types: [explicit]
-  evaluate_selection_methods:
-    - "explicit:all_analog"
-  max_operating_points: null
-
-# First-order analytical per-token energy model (analyze_energy_quality.py).
-# Constants are per-operation energies in picojoules; see docs/REFERENCES.md.
-cost_model:
-  # 8-bit integer MAC, ~0.2-0.3 pJ scaled from 45 nm measurements
-  # (Horowitz, ISSCC 2014, "Computing's energy problem").
-  e_mac_digital_pj: 0.25
-  # In-crossbar PCM MAC, ~1-10 fJ/op reported for analog in-memory MVMs
-  # (Joshi et al., Nat. Commun. 2020; Le Gallo et al., Nat. Electron. 2018).
-  e_analog_mac_pj: 0.005
-  # 8-bit SAR ADC conversion, ~1-2 pJ (Murmann, ADC performance survey).
-  e_adc_pj: 1.5
-  # 8-bit input DAC/driver line activation.
-  e_dac_pj: 0.1

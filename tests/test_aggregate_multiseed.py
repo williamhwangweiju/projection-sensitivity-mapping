@@ -40,16 +40,17 @@ def test_per_trace_paired_means_are_offset_invariant():
         method_policies=["static_sensitivity", "static_fisher"],
         baseline_policies=["random"],
     )
-    # The paired difference cancels any trace-wide offset.
+    # The paired difference cancels any trace-wide offset, and the legacy
+    # digital_set_id column in the synthetic rows is ignored.
     shifted = per_trace_paired_means(
         rows_for_trace(5.0),
         method_policies=["static_sensitivity", "static_fisher"],
         baseline_policies=["random"],
     )
-    key = ("set_a", "random", "static_sensitivity")
+    key = ("random", "static_sensitivity")
     assert means[key] == pytest.approx(1.0)
     assert shifted[key] == pytest.approx(1.0)
-    assert means[("set_a", "random", "static_fisher")] == pytest.approx(0.5)
+    assert means[("random", "static_fisher")] == pytest.approx(0.5)
 
 
 def test_missing_policy_pairs_are_skipped():

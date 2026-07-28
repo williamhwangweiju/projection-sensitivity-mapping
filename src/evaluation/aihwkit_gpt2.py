@@ -283,50 +283,6 @@ class HybridAnalogModel:
                     f"{projection_id} was not restored exactly; max error={error:.3e}."
                 )
 
-    def swap_to_digital(self, projection_ids: Iterable[str]) -> list[str]:
-        """Temporarily route converted projections through their original digital modules.
-
-        Projections that are permanently digital (in ``digital_projection_ids``)
-        are ignored, so callers may pass a full candidate digital set. The
-        analog modules and their programmed weights are preserved and can be
-        reinstalled with :meth:`swap_back_to_analog`. This makes greedy
-        digital-set search O(1) module swaps per trial instead of rebuilding
-        the whole hybrid conversion.
-        """
-        swapped: list[str] = []
-        for raw_id in projection_ids:
-            projection_id = str(raw_id)
-            if projection_id in self.digital_projection_ids:
-                continue
-            state = self.states.get(projection_id)
-            if state is None:
-                raise KeyError(
-                    f"{projection_id} is not part of the converted analog set."
-                )
-            setattr(
-                state.handle.parent,
-                state.handle.attribute,
-                self.original_modules[projection_id],
-            )
-            swapped.append(projection_id)
-        return swapped
-
-    def swap_back_to_analog(self, projection_ids: Iterable[str]) -> None:
-        """Reinstall the analog modules for projections swapped out by swap_to_digital."""
-        for raw_id in projection_ids:
-            projection_id = str(raw_id)
-            state = self.states[projection_id]
-            setattr(state.handle.parent, state.handle.attribute, state.analog_module)
-
-    @contextmanager
-    def temporarily_digital(self, projection_ids: Iterable[str]) -> Iterator[list[str]]:
-        """Context manager wrapping swap_to_digital / swap_back_to_analog."""
-        swapped = self.swap_to_digital(projection_ids)
-        try:
-            yield swapped
-        finally:
-            self.swap_back_to_analog(swapped)
-
     def restore_digital_modules(self) -> None:
         for projection_id, original in self.original_modules.items():
             state = self.states[projection_id]

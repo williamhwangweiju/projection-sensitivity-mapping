@@ -41,7 +41,6 @@ def main() -> None:
         default=REPO_ROOT / "configs/full_pipeline/gpt2_hybrid_3dcim.yaml",
     )
     parser.add_argument("--phase1", type=Path, required=True)
-    parser.add_argument("--operating-points", type=Path, required=True)
     parser.add_argument(
         "--proxy",
         type=Path,
@@ -101,8 +100,6 @@ def main() -> None:
             "--skip-phase1",
             "--phase1-artifact",
             str(args.phase1.resolve()),
-            "--operating-points-artifact",
-            str(args.operating_points.resolve()),
         ]
         if args.proxy is not None:
             command.extend(["--proxy-artifact", str(args.proxy.resolve())])
@@ -125,7 +122,6 @@ def main() -> None:
             {
                 "base_config": str(args.config.resolve()),
                 "phase1": str(args.phase1.resolve()),
-                "operating_points": str(args.operating_points.resolve()),
                 "proxy": None if args.proxy is None else str(args.proxy.resolve()),
                 "runs": manifests,
             },

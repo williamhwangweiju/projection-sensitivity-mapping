@@ -1,6 +1,6 @@
 # Phase 1: Projection Sensitivity Profiling
 
-Phase 1 measures how sensitive each profiled GPT-2 projection is to the repository's manual analog-weight noise model. Its primary artifact is the authoritative projection catalog used by Phase 1.5 for digital protection, by Phase 3 for physical sharding and importance, and by Phase 4 for cross-phase preprocessing checks.
+Phase 1 measures how sensitive each profiled GPT-2 projection is to the repository's manual analog-weight noise model. Its primary artifact is the authoritative projection catalog used by Phase 3 for physical sharding and importance and by Phase 4 for cross-phase preprocessing checks.
 
 The implementation profiles one projection as analog at a time while every other projection remains digital. The mapping score is a noise-only change in negative log-likelihood (NLL) relative to that projection's clipped nominal analog reference. It is **not** a change in perplexity relative to the untouched digital model.
 
@@ -253,11 +253,11 @@ python3 scripts/run_full_pipeline.py \
   --config configs/full_pipeline/gpt2_hybrid_3dcim.yaml
 ```
 
-When Phase 1 is not skipped, the pipeline runs profiling, exports the ranking CSV, and then runs [Phase 1.5](PHASE_1_5.md). Use the direct Phase 1 commands when only the profile is wanted.
+When Phase 1 is not skipped, the pipeline runs profiling, exports the ranking CSV, and then computes the proxy sensitivity sidecar. Use the direct Phase 1 commands when only the profile is wanted.
 
 ## Model source
 
-All Phase 1/1.5/4 runners load the model through
+All Phase 1/4 runners load the model through
 `src/common/model_loading.py`: when `model.checkpoint` is set (normally the
 [Phase 0](PHASE_0.md) HWA checkpoint), weights come from that directory;
 `null` loads pretrained `model.name` weights (the PTQ contrast). The resolved
@@ -278,9 +278,7 @@ gradient passes (no AIHWKit):
   noise-to-signal energy ratio.
 
 The sidecar JSON (`proxy_sensitivity_<timestamp>.json`) feeds the
-`fisher_rank`, `fisher_per_mac`, and `magnitude_rank` selection methods in
-[Phase 1.5](PHASE_1_5.md) and the `static_fisher` placement policy in
-[Phase 3](PHASE_3.md). When `--phase1` is supplied, Spearman rank
+`static_fisher` placement policy in [Phase 3](PHASE_3.md). When `--phase1` is supplied, Spearman rank
 correlations against the measured score are written to
 `proxy_rank_correlation.csv` — the headline evidence for whether cheap
 proxies can replace measured profiling. The pipeline driver runs this
@@ -402,7 +400,6 @@ Uncertainty statistics remain available only in the JSON.
 
 ## Downstream contracts
 
-- **Phase 1.5** requires each candidate's `projection_id`, `sensitivity_score_for_mapping`, `parameter_count`, `macs_per_token`, and optional `tied_to_embedding`; capacity calculation also needs `in_features` and `out_features`.
 - **Phase 3** uses `projection_id`, dimensions, and mapping sensitivity to construct coordinate-preserving physical shards and shard importance.
 - **Phase 4** treats `projections` as the authoritative analog/digital candidate universe. Projections omitted by a reduced profile remain digital rather than being silently analogized. It verifies original/clipped checksums, range mode, population standard deviation, clipping threshold, and programmed range against the current model and analog configuration.
 - **Pipeline validation** requires unique projection IDs and `mapping_sensitivity_unit == "delta_nll_noise"`.

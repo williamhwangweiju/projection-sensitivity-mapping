@@ -1,8 +1,9 @@
 # Running the pipeline on Google Colab
 
-The development machine cannot run AIHWKit, so Phases 1 and 4 (and full
-pipeline runs) execute on Colab. The repository is cloned inside a mounted
-Google Drive folder so artifacts survive session preemption.
+Phases 1 and 4 require AIHWKit and are executed on Colab. The repository is
+cloned inside a mounted Google Drive folder so artifacts survive session
+preemption; the committed notebook
+(`notebooks/projection_sensitivity_mapping.ipynb`) drives everything.
 
 ## One-time setup
 
@@ -14,129 +15,61 @@ drive.mount('/content/drive')
 ```bash
 cd /content/drive/MyDrive
 git clone <your-repo-url> projection-sensitivity-mapping-hybrid-auto
-cd projection-sensitivity-mapping-hybrid-auto
 ```
 
-Install pinned dependencies. Keep torch matched to the Colab CUDA image and
-respect the repository pins (`transformers<5`, `datasets<4`,
-`aihwkit==1.1.0`):
+Open the notebook (from GitHub via
+`colab.research.google.com/github/...` or a Drive copy) and run Cells 1–7.
+Cell 3 installs pinned dependencies (`transformers<5`, `datasets<4`,
+`aihwkit==1.1.0`); Cell 4 probes the RPUCuda **mapped-tile** path with the
+repository RPU configuration — if the probe fails, the session's GPU cannot
+run the pipeline (switch runtime type, e.g. to a T4, and rerun from Cell 2).
+Hugging Face caches live on local disk, not on the Drive mount (heavy cache
+I/O through the FUSE mount has caused mid-run mount failures).
 
-```bash
-pip install -r requirements.txt
-python3 scripts/smoke_aihwkit_contract.py --device cpu
-```
-
-If the `aihwkit` wheel fails to build, install the CPU wheel from PyPI first
-(`pip install aihwkit==1.1.0`) — this pipeline disables AIHWKit's internal
-noise and does not require the CUDA-enabled build; the GPU is used by
-PyTorch for model forwards and Phase 0 training.
-
-Edit the target configuration before launching:
-
-- `model.device: cuda`
-- `hwa_training.precision: bf16` (A100/L4; use `fp32` on T4)
+Set in Cell 1: `USE_HWA` (hardware-aware deployment vs the PTQ contrast) and
+the `RUN_PHASE...` flags. `hwa_training.precision: bf16` requires an
+L4/A100; use `fp32` on a T4.
 
 ## Session recipe
 
-Smoke first, then the full run:
+1. Smoke run (`RUN_MODE = "smoke"`) to validate contracts.
+2. Phase 0 (`RUN_PHASE0 = 1`, everything else 0): ~1–2 h on L4, T4 slower.
+   Auto-resumes from step checkpoints after preemption.
+3. Phase 1 + proxy (`RUN_PHASE1 = 1`): the dominant profiling cost, several
+   hours on GPU (540 calibration passes).
+4. Phases 2–4 (`RUN_PHASE2 = RUN_PHASE3 = RUN_PHASE4 = 1`): Phases 2–3 take
+   seconds; Phase 4 performs 75 noisy passes over the full held-out test set
+   (~6–10 h on a T4) and checkpoints after every timestep block, so a
+   preempted session repeats at most one timestep — rerun Cell 8 with the
+   same flags to resume.
 
-```bash
-python3 scripts/run_full_pipeline.py \
-  --config configs/full_pipeline/gpt2_hybrid_3dcim_smoke.yaml
-```
-
-```bash
-RUN_PHASE0=1 bash scripts/run_full_pipeline.sh \
-  configs/full_pipeline/gpt2_hybrid_3dcim.yaml
-```
-
-The driver order is: Phase 0 (HWA fine-tune, producing
-`model.checkpoint`) → Phase 1 → proxy scores → Phase 1.5 → Phase 2 →
-Phase 3 → contract validation → Phase 4 → energy analysis.
-
-For the generalization run:
-
-```bash
-RUN_PHASE0=1 bash scripts/run_full_pipeline.sh \
-  configs/full_pipeline/gpt2_medium_hybrid_3dcim.yaml
-```
-
-### PTQ contrast run
-
-The vanilla (no-HWA) contrast uses the same configuration with
-`hwa_training.enabled: false` and `model.checkpoint: null` — or reuse
-existing vanilla artifacts with the skip flags below. Keep the two artifact
-trees separate.
-
-## Resuming after preemption
-
-- **Phase 0** resumes automatically from the newest
-  `checkpoints/step_XXXXXX/` directory; pass `--no-resume` to the Phase 0
-  runner to restart. `keep_last_checkpoints` bounds Drive usage
-  (a gpt2-small checkpoint is ~0.5 GB; gpt2-medium ~1.4 GB).
-- **Later phases** resume through artifact injection:
-
-```bash
-python3 scripts/run_full_pipeline.py \
-  --config configs/full_pipeline/gpt2_hybrid_3dcim.yaml \
-  --skip-phase0 \
-  --skip-phase1 \
-  --phase1-artifact  data/results/phase1_sensitivity/<profile>.json \
-  --proxy-artifact   data/results/phase1_sensitivity/proxy_sensitivity_<ts>.json \
-  --operating-points-artifact data/results/phase1_5_digital_selection/digital_operating_points.json \
-  --skip-phase2 \
-  --trace-artifact   data/results/phase2_fidelity/fidelity_traces/mixed_96x8/seed_42/trace.npz \
-  --skip-phase3 \
-  --phase3-manifest  data/results/phase3_static_mapping/phase3_manifest.json
-```
-
-Phase 4 has no within-run resume, but
-`hybrid_quality_by_policy.partial.csv` is written after each operating
-point; a rerun with the flags above repeats only Phase 4.
-
-## Expected runtimes (order of magnitude)
-
-| Stage | gpt2 (small) | gpt2-medium |
-| --- | --- | --- |
-| Phase 0 (2000 steps) | ~1–2 h on L4, less on A100 | ~4–6 h on L4 |
-| Phase 1 (540 passes over 64k tokens) | dominant profiling cost; several hours on GPU | ~3× small |
-| Proxy scores (32 gradient batches) | minutes | minutes |
-| Phase 1.5 measured greedy | up to ~524 passes; hours | ~3× small |
-| Phase 2 + Phase 3 | seconds–minutes (CPU) | seconds–minutes |
-| Phase 4 (3 points × 5 timesteps × 3 realizations × 5 policies) | 225 noisy passes + LAMBADA at realization 0 | ~3× small |
-
-Budget sessions accordingly: Phase 0 and Phase 1 belong in separate Colab
-sessions with artifacts on Drive, then a final session runs Phases 2–4 from
-the saved artifacts.
+HWA and PTQ artifacts live in separate Drive trees
+(`results/<mode>/hwa/seed_<seed>` vs `results/<mode>/ptq/seed_<seed>`) and
+can never overwrite each other.
 
 ## Multi-seed hardware traces
 
+Phases 0–1 are reused; each trace seed gets an isolated Phase 2–4 tree:
+
 ```bash
-python3 scripts/run_multiseed_pipeline.py \
-  --config configs/full_pipeline/gpt2_hybrid_3dcim.yaml \
+python scripts/run_multiseed_pipeline.py \
+  --config <generated Drive config> \
   --phase1 <profile>.json \
-  --operating-points <digital_operating_points.json> \
-  --proxy <proxy_sensitivity.json> \
-  --trace-seeds 41 42 43 \
-  --output-root data/results/multiseed
+  --proxy <proxy_sensitivity>.json \
+  --trace-seeds 41 43 44 45 \
+  --vary-placement-seed \
+  --output-root <drive>/results/full/hwa/multiseed
 ```
 
-`--proxy` reuses one proxy sidecar across seeds (required when the policy
-list includes `static_fisher`). Phase 0 is skipped and its checkpoint is
-reused; the script fails fast if `model.checkpoint` does not exist.
+`--proxy` is required when the policy list includes `static_fisher`; the
+script fails fast if `model.checkpoint` does not exist. A completed
+single-seed run can join the aggregate by appending a
+`{trace_seed, output_root}` entry to `multiseed_run_manifest.yaml`.
 
-Then produce the inferential paper table (traces as statistical units —
-the within-trace bootstrap intervals are descriptive only):
+Then produce the inferential paper table (traces as statistical units — the
+within-trace bootstrap intervals are descriptive only):
 
 ```bash
-python3 scripts/aggregate_multiseed.py \
-  --manifest data/results/multiseed/multiseed_run_manifest.yaml
+python scripts/aggregate_multiseed.py \
+  --manifest <drive>/results/full/hwa/multiseed/multiseed_run_manifest.yaml
 ```
-
-## HWA versus PTQ artifact trees
-
-The notebook separates variants as `results/<mode>/hwa/seed_<seed>` and
-`results/<mode>/ptq/seed_<seed>`. If you have artifacts from before this
-separation (stored directly under `results/<mode>/seed_<seed>`), move the
-Phase 0 output into the `hwa` subtree and the vanilla artifacts into the
-`ptq` subtree once, then never mix them again.

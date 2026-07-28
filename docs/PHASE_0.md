@@ -2,13 +2,13 @@
 
 Phase 0 fine-tunes the base language model under the same analog weight-noise
 model that the rest of the pipeline deploys, producing the checkpoint that
-Phases 1, 1.5, and 4 load through `model.checkpoint`. The motivation is the
+Phases 1 and 4 load through `model.checkpoint`. The motivation is the
 hardware-aware-training literature (Joshi et al. 2020; Rasch et al. 2023) and
-our own preliminary vanilla runs, where post-training deployment left
-low-digital-budget operating points with severely degraded perplexity
-(artifacts not committed to this repository); noise-aware fine-tuning is
-expected to move the digital-budget frontier into a usable regime so
-placement effects can be measured on a deployable model.
+our own preliminary vanilla runs, where post-training all-analog deployment
+produced severely degraded perplexity (artifacts not committed to this
+repository); noise-aware fine-tuning is expected to make the all-analog
+deployment functional so placement effects can be measured on a deployable
+model.
 
 ## Entry points
 

@@ -3,6 +3,7 @@
 experiment:
   seed: 42
   placement_seed: 42
+
 model:
   name: gpt2
   device: cpu
@@ -41,6 +42,7 @@ hwa_training:
   keep_last_checkpoints: 1
   eval_every_steps: 0
   eval_max_tokens: 2048
+
 dataset:
   name: Salesforce/wikitext
   config: wikitext-103-raw-v1
@@ -51,6 +53,7 @@ dataset:
   max_tokens: 1024
   document_separator: "\n\n"
   drop_incomplete_final_sequence: true
+
 evaluation_dataset:
   name: Salesforce/wikitext
   config: wikitext-103-raw-v1
@@ -61,11 +64,13 @@ evaluation_dataset:
   max_tokens: 1024
   document_separator: "\n\n"
   drop_incomplete_final_sequence: true
+
 hardware:
   num_tiles: 72
   tiers_per_tile: 8
   tier_shape: {rows: 512, cols: 512}
   num_thermal_zones: 8
+
 analog:
   clip_sigma: 2.5
   range_mode: peak_to_peak
@@ -76,31 +81,21 @@ analog:
   output_bound: null
   weight_scaling_omega: 1.0
   weight_scaling_columnwise: false
+
 phase1:
   output_root: data/smoke/phase1
   results_filename_prefix: gpt2_hybrid_smoke
+
 profiling:
   include_lm_head: false
   num_seeds: 1
   seed_stride: 1
   profile_blocks: [0]
   antithetic: false
-  sensitivity_field: delta_nll_noise_mean
-  sensitivity_unit: delta_nll_noise
-digital_selection:
-  output_root: data/smoke/phase1_5
-  forced_digital: []
-  # Keep the smoke test cheap; the full configuration enables measured search.
-  greedy_marginal:
-    enabled: false
-  methods: [sensitivity_rank]
-  budgets:
-    projection_counts: [0, 1]
-    parameter_fractions: []
-    mac_fractions: []
-  explicit_sets:
-    smoke_all_analog: []
-    smoke_protect_top: [block_0/attn.c_proj]
+  proxy:
+    enabled: true
+    max_batches: 2
+
 phase2:
   name: smoke_72x8
   output_root: data/smoke/phase2
@@ -123,20 +118,21 @@ phase2:
         noise_increase_range: [0.25, 0.70]
         candidate_classes: [high, medium, low]
         make_unavailable: false
+
 phase3:
   # Negative Monte-Carlo sensitivity estimates are treated as zero importance
   # for physical placement; raw Phase-1 values remain preserved in the profile.
   sensitivity_floor: 0.0
   output_root: data/smoke/phase3
   mapping_timestep: 0
-  policies: [random, sequential, hardware_only, static_sensitivity]
+  policies: [random, sequential, hardware_only, static_sensitivity, static_fisher]
+
 phase4:
   output_root: data/smoke/phase4
-  policies: [random, sequential, hardware_only, static_sensitivity]
+  policies: [random, sequential, hardware_only, static_sensitivity, static_fisher]
+  method_policies: [static_sensitivity, static_fisher]
+  baseline_policies: [random, sequential, hardware_only]
   timesteps: [0, 2, 3]
   num_realizations: 1
   antithetic: false
   unavailable_noise_std: 0.080
-  evaluate_budget_types: [explicit]
-  evaluate_selection_methods: []
-  max_operating_points: 2
