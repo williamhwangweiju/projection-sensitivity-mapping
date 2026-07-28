@@ -132,11 +132,11 @@ digital_selection:
   output_root: data/results/phase1_5_digital_selection_medium
 
   forced_digital: []
-  # Selection-method baselines are out of the paper scope; see the gpt2-small
+  # Fixed budgets via top-k measured sensitivity; see the gpt2-small
   # configuration comment.
-  methods: []
+  methods: [sensitivity_rank]
   budgets:
-    projection_counts: []
+    projection_counts: [2, 4, 8]
     parameter_fractions: []
     mac_fractions: []
   explicit_sets: {}
@@ -223,9 +223,10 @@ phase4:
   antithetic: false
   unavailable_noise_std: 0.080
 
-  evaluate_budget_types: [greedy_step]
+  evaluate_budget_types: [greedy_step, projection_count]
   evaluate_selection_methods:
     - greedy_measured_gain_per_cost_per_macs_per_token
+    - sensitivity_rank
   max_operating_points: 3
 
 # First-order analytical per-token energy model; see the gpt2-small

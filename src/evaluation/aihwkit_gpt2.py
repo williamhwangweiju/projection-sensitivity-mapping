@@ -197,7 +197,15 @@ class HybridAnalogModel:
                     rpu_config=make_rpu_config(self.settings),
                 )
 
-            # from_digital completed successfully on CPU.
+            # from_digital completed successfully on CPU. Clear allocator
+            # fragmentation before creating this projection's CUDA tiles;
+            # converting 49 mapped projections in one long-lived process can
+            # otherwise fail CUBLAS initialization mid-way.
+            if device.type == "cuda":
+                import gc
+
+                gc.collect()
+                torch.cuda.empty_cache()
             analog = analog.to(device)
             analog.eval()
 

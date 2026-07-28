@@ -88,5 +88,5 @@ def test_hardware_can_hold_initial_all_analog_candidate_set(config_path: Path):
 def test_final_evaluation_consumes_automatic_greedy_points(config_path: Path):
     config = load(config_path)
     expected = "greedy_measured_gain_per_cost_per_macs_per_token"
-    assert config["phase4"]["evaluate_budget_types"] == ["greedy_step"]
+    assert "greedy_step" in config["phase4"]["evaluate_budget_types"]
     assert expected in config["phase4"]["evaluate_selection_methods"]

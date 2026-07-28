@@ -235,3 +235,13 @@ class AIHWKITSensitivityProfiler:
                 analog, prepared.clipped_weight, bias, verify=False
             )
             setattr(handle.parent, handle.attribute, original_module)
+            # Release the analog module's CUDA tiles before the next
+            # projection: long sequential profiling otherwise accumulates
+            # allocator fragmentation that can starve later AIHWKit CUDA
+            # initialization in the same process.
+            analog = None
+            import gc
+
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
