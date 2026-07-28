@@ -370,6 +370,15 @@ def main(
         )
         return {"lambada_accuracy": accuracy}
 
+    # Release every torch-cached block from the reference evaluations before
+    # AIHWKit allocates its tiles: RPUCuda uses raw cudaMalloc/cuBLAS outside
+    # torch's caching allocator, and reserved-but-unused torch memory has
+    # caused CUBLAS initialization failures at the first tile conversion.
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+
     settings = ManualAnalogSettings.from_config(config)
     settings.validate()
     # Measured Phase-1 sensitivity per projection, for a policy-comparable
