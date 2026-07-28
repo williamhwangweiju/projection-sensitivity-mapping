@@ -285,6 +285,23 @@ def main(
     manifest_payload = load_json(phase3_manifest_path)
     manifest = manifest_payload["placements"]
     available_point_ids = {str(row["digital_set_id"]) for row in manifest}
+    dropped = [
+        point for point in points
+        if str(point["digital_set_id"]) not in available_point_ids
+    ]
+    if dropped:
+        # Placements missing for selected points almost always means Phase 3
+        # ran against an older operating-point artifact. Never drop silently.
+        print(
+            "WARNING: dropping "
+            f"{len(dropped)} selected operating point(s) with no Phase-3 "
+            "placements (stale phase3_manifest? rerun Phase 3):"
+        )
+        for point in dropped:
+            print(
+                f"  {point['digital_set_id']} | method={point['selection_method']} "
+                f"| digital_projections={point['digital_projection_count']}"
+            )
     points = [point for point in points if str(point["digital_set_id"]) in available_point_ids]
     if not points:
         raise ValueError("All selected Phase-4 operating points were capacity-infeasible or lacked placements.")
