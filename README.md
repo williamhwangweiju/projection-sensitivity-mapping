@@ -90,8 +90,12 @@ The executable stages share these rules:
   scales.
 
 The primary configuration profiles all 48 transformer projections and the tied
-language-model head. No projection is hard-coded as digital; measured greedy
-selection starts from the all-analog candidate set.
+language-model head, and deploys the entire candidate set as analog: Phase 1.5
+degenerates to a single explicit all-analog operating point (hardware-aware
+training makes the nominal all-analog hybrid match the digital reference, so
+digital protection is unnecessary nominally). The budgeted-selection machinery
+(ranked methods and measured greedy search) remains available through the
+`digital_selection` configuration for follow-up studies.
 
 ## Installation
 

@@ -132,17 +132,17 @@ digital_selection:
   output_root: data/results/phase1_5_digital_selection_medium
 
   forced_digital: []
-  # Fixed budgets via top-k measured sensitivity; see the gpt2-small
-  # configuration comment.
-  methods: [sensitivity_rank]
+  # All-analog deployment study; see the gpt2-small configuration comment.
+  methods: []
   budgets:
-    projection_counts: [2, 4, 8]
+    projection_counts: []
     parameter_fractions: []
     mac_fractions: []
-  explicit_sets: {}
+  explicit_sets:
+    all_analog: []
 
   greedy_marginal:
-    enabled: true
+    enabled: false
     forced_digital: []
     candidate_pool_size: null
     max_promotions: 16
@@ -223,11 +223,10 @@ phase4:
   antithetic: false
   unavailable_noise_std: 0.080
 
-  evaluate_budget_types: [greedy_step, projection_count]
+  evaluate_budget_types: [explicit]
   evaluate_selection_methods:
-    - greedy_measured_gain_per_cost_per_macs_per_token
-    - sensitivity_rank
-  max_operating_points: 3
+    - "explicit:all_analog"
+  max_operating_points: null
 
 # First-order analytical per-token energy model; see the gpt2-small
 # configuration and docs/REFERENCES.md for constant provenance.

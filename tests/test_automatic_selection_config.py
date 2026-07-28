@@ -43,8 +43,10 @@ def test_config_has_no_hardcoded_digital_projection(config_path: Path):
     assert config["profiling"]["include_lm_head"] is True
     assert selection["forced_digital"] == []
     assert greedy["forced_digital"] == []
-    assert selection["explicit_sets"] == {}
-    assert greedy["enabled"] is True
+    # The all-analog deployment study: explicit sets may only declare fully
+    # analog candidate universes; no projection is hard-coded digital.
+    for name, projection_ids in selection["explicit_sets"].items():
+        assert projection_ids == [], f"explicit set {name} protects projections"
     assert greedy["candidate_pool_size"] is None
 
 
@@ -85,8 +87,19 @@ def test_hardware_can_hold_initial_all_analog_candidate_set(config_path: Path):
 
 
 @pytest.mark.parametrize("config_path", full_pipeline_configs(), ids=lambda p: p.stem)
-def test_final_evaluation_consumes_automatic_greedy_points(config_path: Path):
+def test_final_evaluation_filters_match_generated_points(config_path: Path):
+    """Every Phase-4 selection-method filter must be producible by Phase 1.5."""
     config = load(config_path)
-    expected = "greedy_measured_gain_per_cost_per_macs_per_token"
-    assert "greedy_step" in config["phase4"]["evaluate_budget_types"]
-    assert expected in config["phase4"]["evaluate_selection_methods"]
+    selection = config["digital_selection"]
+    producible = {f"explicit:{name}" for name in selection["explicit_sets"]}
+    producible.update(str(method) for method in selection["methods"])
+    if bool(selection["greedy_marginal"].get("enabled", True)):
+        objective = selection["greedy_marginal"].get("objective", "gain_per_cost")
+        cost_field = selection["greedy_marginal"].get("cost_field", "macs_per_token")
+        producible.add(f"greedy_measured_{objective}_per_{cost_field}")
+    assert producible, "No operating-point source is configured."
+    for method in config["phase4"]["evaluate_selection_methods"]:
+        assert str(method) in producible, (
+            f"{config_path.name}: phase4 filter {method!r} matches no "
+            "configured selection source."
+        )
