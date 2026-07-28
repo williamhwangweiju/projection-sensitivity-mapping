@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 from copy import deepcopy
+import csv
 from datetime import datetime, timezone
 import json
 import math
@@ -389,6 +390,35 @@ def main(
     }
     proxy_floor = float(config.get("phase3", {}).get("sensitivity_floor", 0.0))
     all_rows: list[dict[str, Any]] = []
+
+    # Resume from the crash-checkpoint CSV: completed (set, policy, timestep,
+    # realization) evaluations are loaded and skipped, so a preempted session
+    # repeats at most one timestep block. Noise fields are keyed by seed,
+    # projection, and realization, so skipping is order-independent.
+    partial_path = resolve_path(cfg["output_root"]) / "hybrid_quality_by_policy.partial.csv"
+    completed: set[tuple[str, str, int, int]] = set()
+    if partial_path.is_file():
+        with partial_path.open("r", newline="", encoding="utf-8") as stream:
+            loaded = [
+                row
+                for row in csv.DictReader(stream)
+                if str(row.get("digital_set_id")) in points_by_id
+            ]
+        if loaded:
+            all_rows.extend(loaded)
+            completed = {
+                (
+                    str(row["digital_set_id"]),
+                    str(row["policy"]),
+                    int(row["timestep"]),
+                    int(row["realization"]),
+                )
+                for row in loaded
+            }
+            print(
+                f"Resuming Phase 4: {len(loaded)} completed evaluation(s) "
+                f"loaded from {partial_path.name}."
+            )
     nominal_rows: list[dict[str, Any]] = []
     for point in points:
         digital_set_id = str(point["digital_set_id"])
@@ -435,6 +465,8 @@ def main(
                 current_noise[unavailable] = unavailable_noise_std
                 for realization in range(realizations):
                     for policy in policies:
+                        if (digital_set_id, policy, timestep, realization) in completed:
+                            continue
                         static_rows = placement_cache.get((digital_set_id, policy))
                         if static_rows is None:
                             raise FileNotFoundError(
@@ -506,6 +538,10 @@ def main(
                             f"DeltaNLL(total)={row['delta_nll_total']:.6f} "
                             f"DeltaNLL(tile)={row['delta_nll_tile']:.6f}"
                         )
+                # Checkpoint after every completed timestep block so a
+                # preempted session loses at most one timestep of work.
+                if all_rows:
+                    write_csv(partial_path, all_rows)
         finally:
             hybrid.restore_digital_modules()
             hybrid = None
