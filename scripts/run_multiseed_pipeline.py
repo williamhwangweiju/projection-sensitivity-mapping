@@ -116,14 +116,24 @@ def main() -> None:
             }
         )
 
+    # Merge into an existing manifest so trace seeds can be run one at a
+    # time across sessions; a rerun of the same seed replaces its entry.
     manifest_path = args.output_root / "multiseed_run_manifest.yaml"
+    existing_runs: list[dict[str, Any]] = []
+    if manifest_path.is_file():
+        payload = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+        existing_runs = list(payload.get("runs", []))
+    by_seed = {int(run["trace_seed"]): run for run in existing_runs}
+    for run in manifests:
+        by_seed[int(run["trace_seed"])] = run
+    merged_runs = [by_seed[seed] for seed in sorted(by_seed)]
     manifest_path.write_text(
         yaml.safe_dump(
             {
                 "base_config": str(args.config.resolve()),
                 "phase1": str(args.phase1.resolve()),
                 "proxy": None if args.proxy is None else str(args.proxy.resolve()),
-                "runs": manifests,
+                "runs": merged_runs,
             },
             sort_keys=False,
         ),
