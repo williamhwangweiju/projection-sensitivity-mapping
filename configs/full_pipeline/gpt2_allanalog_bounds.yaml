@@ -1,0 +1,189 @@
+# Placement bound experiment: adversarial (worst-case) and oracle_clairvoyant
+# (trajectory-RMS upper bound) policies only. Phase-4 noise fields are keyed by
+# (base_seed, projection, realization) and are policy-independent, so rows from
+# this run remain exactly paired with the frozen five-policy campaign and the
+# CSVs can be concatenated for analysis. Run per trace seed via
+# scripts/run_multiseed_pipeline.py --config this_file --trace-seeds 41 42 43 44 45
+# (Phases 0-1 artifacts are reused; incremental cost is 2 policies x 15 passes
+# per seed plus the two reference passes).
+experiment:
+  seed: 42
+  placement_seed: 42
+model:
+  name: gpt2
+  device: cpu
+  checkpoint: data/results/phase0_hwa_training/gpt2/checkpoint_final
+hwa_training:
+  enabled: true
+  output_root: data/results/phase0_hwa_training/gpt2
+  dataset:
+    name: Salesforce/wikitext
+    config: wikitext-103-raw-v1
+    split: train
+    sequence_length: 512
+    stride: 512
+    batch_size: 8
+    max_tokens: 33554432
+    document_separator: '
+
+
+      '
+    drop_incomplete_final_sequence: true
+  max_steps: 2000
+  gradient_accumulation_steps: 4
+  learning_rate: 5.0e-05
+  weight_decay: 0.01
+  warmup_steps: 100
+  max_grad_norm: 1.0
+  precision: bf16
+  seed: 42
+  noise:
+    noise_std_range:
+    - 0.0
+    - 0.046
+    clip_in_forward: true
+    include_lm_head: true
+    exclude_projection_ids: []
+  checkpoint_every_steps: 250
+  keep_last_checkpoints: 2
+  eval_every_steps: 250
+  eval_max_tokens: 65536
+dataset:
+  name: Salesforce/wikitext
+  config: wikitext-103-raw-v1
+  split: validation
+  sequence_length: 1024
+  stride: 1024
+  batch_size: 1
+  max_tokens: null
+  document_separator: '
+
+
+    '
+  drop_incomplete_final_sequence: true
+evaluation_dataset:
+  name: Salesforce/wikitext
+  config: wikitext-103-raw-v1
+  split: test
+  sequence_length: 1024
+  stride: 1024
+  batch_size: 1
+  max_tokens: null
+  document_separator: '
+
+
+    '
+  drop_incomplete_final_sequence: true
+hardware:
+  num_tiles: 96
+  tiers_per_tile: 8
+  tier_shape:
+    rows: 512
+    cols: 512
+  num_thermal_zones: 8
+analog:
+  clip_sigma: 2.5
+  range_mode: peak_to_peak
+  reference_noise_std: 0.023
+  tile_size: 512
+  adc_dac_bits: 8
+  output_bound: null
+  weight_scaling_omega: 1.0
+  weight_scaling_columnwise: false
+phase1:
+  output_root: data/results/phase1_sensitivity
+  results_filename_prefix: gpt2_hybrid_sensitivity
+profiling:
+  include_lm_head: true
+  num_seeds: 5
+  seed_stride: 1
+  profile_blocks:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+  - 11
+  antithetic: true
+  proxy:
+    enabled: true
+    max_batches: 32
+phase2:
+  name: mixed_96x8
+  output_root: data/results/phase2_fidelity/fidelity_traces
+  fidelity_model:
+    num_timesteps: 120
+    reference_noise_std: 0.023
+    min_noise_std: 0.005
+    max_noise_std: 0.08
+    fidelity_classes:
+      high:
+        fraction: 0.25
+        noise_multiplier_range:
+        - 0.65
+        - 0.85
+      medium:
+        fraction: 0.5
+        noise_multiplier_range:
+        - 0.9
+        - 1.15
+      low:
+        fraction: 0.25
+        noise_multiplier_range:
+        - 1.35
+        - 1.7
+    degradation:
+      gradual_drift:
+        enabled: true
+        total_increase_range:
+        - 0.12
+        - 0.35
+      thermal_variation:
+        enabled: true
+        correlation: 0.94
+        standard_deviation_fraction: 0.05
+      localized_fault:
+        enabled: true
+        num_affected_tiles: 8
+        onset_timestep_range:
+        - 35
+        - 90
+        noise_increase_range:
+        - 0.25
+        - 0.7
+        candidate_classes:
+        - high
+        - medium
+        - low
+        make_unavailable: false
+phase3:
+  sensitivity_floor: 0.0
+  output_root: data/results/phase3_bounds
+  mapping_timestep: 0
+  policies:
+  - adversarial
+  - oracle_clairvoyant
+phase4:
+  output_root: data/results/phase4_bounds
+  policies:
+  - adversarial
+  - oracle_clairvoyant
+  method_policies:
+  - oracle_clairvoyant
+  baseline_policies:
+  - adversarial
+  timesteps:
+  - 0
+  - 30
+  - 60
+  - 90
+  - 119
+  num_realizations: 3
+  antithetic: false
+  unavailable_noise_std: 0.08

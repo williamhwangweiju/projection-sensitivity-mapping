@@ -16,6 +16,7 @@ from src.mapping.sharding import count_projection_shards
 # (n_layer, n_embd, vocab_size).
 MODEL_GEOMETRY = {
     "gpt2": (12, 768, 50257),
+    "gpt2-medium": (24, 1024, 50257),
 }
 
 

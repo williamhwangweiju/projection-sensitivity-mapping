@@ -44,9 +44,46 @@ def test_static_sensitivity_minimizes_separable_proxy():
 def test_all_policies_cover_same_shards():
     shards = build_shards(profile_rows(), digital_projection_ids=["p_digital"], tier_rows=4, tier_cols=4)
     expected = {shard.shard_id for shard in shards}
-    for policy in ("random", "sequential", "hardware_only", "static_sensitivity"):
+    for policy in ("random", "sequential", "hardware_only", "static_sensitivity", "adversarial", "oracle_clairvoyant"):
         records = place_shards(shards, noise=[0.01, 0.02, 0.03, 0.04], available=[True] * 4, tiers_per_tile=2, policy=policy, timestep=0, seed=7)
         assert {record.shard_id for record in records} == expected
+
+
+def test_adversarial_maximizes_separable_proxy():
+    # The adversarial bound must dominate every other policy's proxy cost:
+    # it is the mirror image of static_sensitivity under the rearrangement
+    # inequality.
+    shards = build_shards(profile_rows(), digital_projection_ids=["p_digital"], tier_rows=4, tier_cols=4)
+    noise = [0.01, 0.02, 0.04, 0.08]
+    available = [True] * 4
+    kwargs = dict(noise=noise, available=available, tiers_per_tile=2, timestep=0, seed=42)
+    adversarial = place_shards(shards, policy="adversarial", **kwargs)
+    for policy in ("random", "sequential", "hardware_only", "static_sensitivity"):
+        other = place_shards(shards, policy=policy, **kwargs)
+        assert placement_proxy(adversarial, variance=True) >= placement_proxy(other, variance=True)
+
+
+def test_adversarial_puts_most_important_shards_on_noisiest_tiles():
+    shards = build_shards(profile_rows(), digital_projection_ids=["p_digital"], tier_rows=4, tier_cols=4)
+    noise = [0.01, 0.02, 0.04, 0.08]
+    records = place_shards(shards, noise=noise, available=[True] * 4, tiers_per_tile=2, policy="adversarial", timestep=0, seed=42)
+    sensitive_noise = {r.tile_noise_std for r in records if r.projection_id == "p_sensitive"}
+    robust_noise = {r.tile_noise_std for r in records if r.projection_id == "p_robust"}
+    assert min(sensitive_noise) >= max(robust_noise)
+
+
+def test_oracle_clairvoyant_matches_static_sensitivity_rule_on_same_inputs():
+    # The clairvoyant policy differs only in the noise/availability inputs the
+    # caller supplies (trajectory RMS); given identical inputs the assignment
+    # must be identical to static_sensitivity.
+    shards = build_shards(profile_rows(), digital_projection_ids=["p_digital"], tier_rows=4, tier_cols=4)
+    noise = [0.01, 0.02, 0.04, 0.08]
+    kwargs = dict(noise=noise, available=[True] * 4, tiers_per_tile=2, timestep=0, seed=42)
+    oracle = place_shards(shards, policy="oracle_clairvoyant", **kwargs)
+    sensitivity = place_shards(shards, policy="static_sensitivity", **kwargs)
+    assert [(r.shard_id, r.tile_id, r.tier_id) for r in oracle] == [
+        (r.shard_id, r.tile_id, r.tier_id) for r in sensitivity
+    ]
 
 
 def test_hardware_only_is_reproducible_and_seed_dependent():

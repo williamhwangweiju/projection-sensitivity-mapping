@@ -7,6 +7,8 @@ import csv
 from pathlib import Path
 import sys
 
+import numpy as np
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -21,6 +23,12 @@ from src.simulators.tile_fidelity import load_trace
 # rather than the measured Phase-1 score. Shard geometry (and therefore shard
 # IDs) is identical across importance channels.
 PROXY_IMPORTANCE_POLICIES = {"static_fisher": "fisher_score"}
+
+# Policies that place against the full trace trajectory (RMS tile noise and
+# all-time availability) instead of the mapping-timestep snapshot. Phase 4
+# re-reads tile noise from the trace at evaluation time, so only the physical
+# assignment carries over.
+CLAIRVOYANT_POLICIES = {"oracle_clairvoyant"}
 
 
 def write_rows(path: Path, rows: list[dict]) -> None:
@@ -103,12 +111,18 @@ def main(
         for policy in proxy_policies
     }
 
+    snapshot_noise = trace.noise_std[mapping_timestep]
+    snapshot_available = trace.available[mapping_timestep]
+    trajectory_noise = np.sqrt(np.square(trace.noise_std.astype(np.float64)).mean(axis=0))
+    trajectory_available = trace.available.all(axis=0)
+
     manifest: list[dict] = []
     for policy in policies:
+        clairvoyant = policy in CLAIRVOYANT_POLICIES
         records = place_shards(
             proxy_shards.get(policy, shards),
-            noise=trace.noise_std[mapping_timestep],
-            available=trace.available[mapping_timestep],
+            noise=trajectory_noise if clairvoyant else snapshot_noise,
+            available=trajectory_available if clairvoyant else snapshot_available,
             tiers_per_tile=int(config["hardware"]["tiers_per_tile"]),
             policy=policy,
             timestep=mapping_timestep,
