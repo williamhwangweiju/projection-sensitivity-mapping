@@ -41,14 +41,6 @@ def main() -> None:
         default=REPO_ROOT / "configs/full_pipeline/gpt2_hybrid_3dcim.yaml",
     )
     parser.add_argument("--phase1", type=Path, required=True)
-    parser.add_argument(
-        "--proxy",
-        type=Path,
-        help=(
-            "Proxy sensitivity sidecar reused across trace seeds; required when "
-            "phase3 policies include static_fisher."
-        ),
-    )
     parser.add_argument("--trace-seeds", type=int, nargs="+", required=True)
     parser.add_argument(
         "--output-root",
@@ -101,8 +93,6 @@ def main() -> None:
             "--phase1-artifact",
             str(args.phase1.resolve()),
         ]
-        if args.proxy is not None:
-            command.extend(["--proxy-artifact", str(args.proxy.resolve())])
         if args.skip_phase4:
             command.append("--skip-phase4")
         print("+", " ".join(command), flush=True)
@@ -132,7 +122,6 @@ def main() -> None:
             {
                 "base_config": str(args.config.resolve()),
                 "phase1": str(args.phase1.resolve()),
-                "proxy": None if args.proxy is None else str(args.proxy.resolve()),
                 "runs": merged_runs,
             },
             sort_keys=False,

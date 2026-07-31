@@ -56,28 +56,11 @@ def run_phase0_hwa(config: Path, skip: bool) -> None:
         )
 
 
-def run_proxy_sensitivity(config: Path, phase1: Path | None) -> Path | None:
-    """Compute cheap proxy sensitivity scores when profiling.proxy.enabled."""
-    from src.common.config import load_yaml
-
-    pipeline_config = load_yaml(config)
-    if not bool(pipeline_config.get("profiling", {}).get("proxy", {}).get("enabled", False)):
-        return None
-
-    from experiments.phase1_sensitivity.run_proxy_sensitivity import main as run_proxy
-
-    return run_proxy(config, phase1)
-
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, default=REPO_ROOT / "configs/full_pipeline/gpt2_hybrid_3dcim.yaml")
     parser.add_argument("--phase1-artifact", type=Path)
-    parser.add_argument(
-        "--proxy-artifact",
-        type=Path,
-        help="Existing proxy sensitivity sidecar; used when Phase 1 is skipped.",
-    )
     parser.add_argument("--trace-artifact", type=Path)
     parser.add_argument("--phase3-manifest", type=Path)
     for phase in (0, 1, 2, 3, 4):
@@ -92,9 +75,6 @@ def main() -> None:
 
     if args.skip_phase1:
         phase1 = required(args.phase1_artifact, "Phase 1")
-        proxy = args.proxy_artifact
-        if proxy is None:
-            proxy = run_proxy_sensitivity(config, phase1)
     else:
         from experiments.phase1_sensitivity.run_aihwkit_profiling import (
             main as run_phase1,
@@ -105,7 +85,6 @@ def main() -> None:
 
         phase1 = run_phase1(config)
         analyze_phase1(phase1)
-        proxy = run_proxy_sensitivity(config, phase1)
 
     if args.skip_phase2:
         trace = required(args.trace_artifact, "Phase 2")
@@ -121,7 +100,7 @@ def main() -> None:
             main as run_phase3,
         )
 
-        phase3_manifest = run_phase3(config, phase1, trace, proxy)
+        phase3_manifest = run_phase3(config, phase1, trace)
 
     from scripts.validate_pipeline_contracts import validate_pipeline
 
@@ -135,7 +114,6 @@ def main() -> None:
 
     print("Pipeline complete.")
     print(f"Phase 1: {phase1}")
-    print(f"Proxy sidecar: {proxy}")
     print(f"Phase 2: {trace}")
     print(f"Phase 3: {phase3_manifest}")
     if phase4_metadata is not None:

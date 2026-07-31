@@ -92,9 +92,6 @@ profiling:
   seed_stride: 1
   profile_blocks: [0]
   antithetic: false
-  proxy:
-    enabled: true
-    max_batches: 2
 
 phase2:
   name: smoke_72x8
@@ -125,12 +122,12 @@ phase3:
   sensitivity_floor: 0.0
   output_root: data/smoke/phase3
   mapping_timestep: 0
-  policies: [random, sequential, hardware_only, static_sensitivity, static_fisher]
+  policies: [random, sequential, hardware_only, static_sensitivity]
 
 phase4:
   output_root: data/smoke/phase4
-  policies: [random, sequential, hardware_only, static_sensitivity, static_fisher]
-  method_policies: [static_sensitivity, static_fisher]
+  policies: [random, sequential, hardware_only, static_sensitivity]
+  method_policies: [static_sensitivity]
   baseline_policies: [random, sequential, hardware_only]
   timesteps: [0, 2, 3]
   num_realizations: 1

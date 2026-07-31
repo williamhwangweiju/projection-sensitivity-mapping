@@ -79,11 +79,10 @@ def place_shards(
         # independent of shard importance while remaining reproducible.
         permutation = np.random.default_rng(seed).permutation(len(shard_list))
         ordered_shards = [shard_list[index] for index in permutation]
-    elif policy in {"static_sensitivity", "static_fisher", "oracle_clairvoyant"}:
-        # Identical ordering rule; the policies differ only in the inputs the
-        # caller supplies (measured Phase-1 sensitivity vs. the Fisher proxy
-        # for importance; snapshot vs. trajectory-RMS tile noise for the
-        # clairvoyant upper bound). Sorted assignment is optimal for the
+    elif policy in {"static_sensitivity", "oracle_clairvoyant"}:
+        # Identical ordering rule; the policies differ only in the tile-noise
+        # input the caller supplies (snapshot vs. trajectory-RMS for the
+        # clairvoyant reference). Sorted assignment is optimal for the
         # separable proxy by the rearrangement inequality.
         slots.sort(key=lambda slot: (slot.noise_std, slot.tile_id, slot.tier_id))
         ordered_shards = sorted(shard_list, key=lambda shard: (-shard.importance, shard.shard_id))

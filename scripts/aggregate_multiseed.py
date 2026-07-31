@@ -139,7 +139,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--method-policies",
         nargs="+",
-        default=["static_sensitivity", "static_fisher"],
+        default=["static_sensitivity"],
     )
     parser.add_argument(
         "--baseline-policies",

@@ -20,7 +20,6 @@ def rows_for_trace(offset: float) -> list[dict[str, str]]:
             for policy, delta in (
                 ("random", 2.0 + offset),
                 ("static_sensitivity", 1.0 + offset),
-                ("static_fisher", 1.5 + offset),
             ):
                 rows.append(
                     {
@@ -37,20 +36,19 @@ def rows_for_trace(offset: float) -> list[dict[str, str]]:
 def test_per_trace_paired_means_are_offset_invariant():
     means = per_trace_paired_means(
         rows_for_trace(0.0),
-        method_policies=["static_sensitivity", "static_fisher"],
+        method_policies=["static_sensitivity"],
         baseline_policies=["random"],
     )
     # The paired difference cancels any trace-wide offset, and the legacy
     # digital_set_id column in the synthetic rows is ignored.
     shifted = per_trace_paired_means(
         rows_for_trace(5.0),
-        method_policies=["static_sensitivity", "static_fisher"],
+        method_policies=["static_sensitivity"],
         baseline_policies=["random"],
     )
     key = ("random", "static_sensitivity")
     assert means[key] == pytest.approx(1.0)
     assert shifted[key] == pytest.approx(1.0)
-    assert means[("random", "static_fisher")] == pytest.approx(0.5)
 
 
 def test_missing_policy_pairs_are_skipped():

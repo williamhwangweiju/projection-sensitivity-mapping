@@ -19,11 +19,6 @@ from src.mapping.placement import place_shards
 from src.mapping.sharding import build_shards, count_projection_shards
 from src.simulators.tile_fidelity import load_trace
 
-# Policies whose shard importance comes from the proxy-sensitivity sidecar
-# rather than the measured Phase-1 score. Shard geometry (and therefore shard
-# IDs) is identical across importance channels.
-PROXY_IMPORTANCE_POLICIES = {"static_fisher": "fisher_score"}
-
 # Policies that place against the full trace trajectory (RMS tile noise and
 # all-time availability) instead of the mapping-timestep snapshot. Phase 4
 # re-reads tile noise from the trace at evaluation time, so only the physical
@@ -39,12 +34,7 @@ def write_rows(path: Path, rows: list[dict]) -> None:
         writer.writerows(rows)
 
 
-def main(
-    config_path: Path,
-    phase1_path: Path,
-    trace_path: Path,
-    proxy_path: Path | None = None,
-) -> Path:
+def main(config_path: Path, phase1_path: Path, trace_path: Path) -> Path:
     config = load_yaml(config_path)
     profile = load_json(phase1_path)
     trace = load_trace(str(trace_path))
@@ -74,21 +64,6 @@ def main(
             f"substrate provides {total_tiers}."
         )
 
-    proxy_policies = [policy for policy in policies if policy in PROXY_IMPORTANCE_POLICIES]
-    proxy_scores: dict[str, dict[str, float]] = {}
-    if proxy_policies:
-        if proxy_path is None:
-            raise ValueError(
-                f"Policies {proxy_policies} require a proxy sensitivity artifact "
-                "(run_proxy_sensitivity.py); pass --proxy."
-            )
-        proxy_rows = load_json(proxy_path)["projections"]
-        for policy in proxy_policies:
-            field = PROXY_IMPORTANCE_POLICIES[policy]
-            proxy_scores[policy] = {
-                str(row["projection_id"]): float(row[field]) for row in proxy_rows
-            }
-
     output_root = resolve_path(cfg["output_root"])
     output_root.mkdir(parents=True, exist_ok=True)
 
@@ -99,17 +74,6 @@ def main(
         tier_cols=tier_cols,
         sensitivity_floor=sensitivity_floor,
     )
-    proxy_shards = {
-        policy: build_shards(
-            profile["projections"],
-            digital_projection_ids=[],
-            tier_rows=tier_rows,
-            tier_cols=tier_cols,
-            sensitivity_floor=sensitivity_floor,
-            sensitivity_overrides=proxy_scores[policy],
-        )
-        for policy in proxy_policies
-    }
 
     snapshot_noise = trace.noise_std[mapping_timestep]
     snapshot_available = trace.available[mapping_timestep]
@@ -120,7 +84,7 @@ def main(
     for policy in policies:
         clairvoyant = policy in CLAIRVOYANT_POLICIES
         records = place_shards(
-            proxy_shards.get(policy, shards),
+            shards,
             noise=trajectory_noise if clairvoyant else snapshot_noise,
             available=trajectory_available if clairvoyant else snapshot_available,
             tiers_per_tile=int(config["hardware"]["tiers_per_tile"]),
@@ -148,7 +112,6 @@ def main(
             "config_sha256": file_sha256(config_path),
             "phase1_path": str(phase1_path),
             "trace_path": str(trace_path),
-            "proxy_path": None if proxy_path is None else str(proxy_path),
             "analog_projection_count": len(profile["projections"]),
             "required_tiers": required_tiers,
             "available_tiers": total_tiers,
@@ -165,10 +128,5 @@ if __name__ == "__main__":
     parser.add_argument("--config", type=Path, default=REPO_ROOT / "configs/full_pipeline/gpt2_hybrid_3dcim.yaml")
     parser.add_argument("--phase1", type=Path, required=True)
     parser.add_argument("--trace", type=Path, required=True)
-    parser.add_argument(
-        "--proxy",
-        type=Path,
-        help="Proxy sensitivity sidecar; required when policies include static_fisher.",
-    )
     args = parser.parse_args()
-    main(args.config, args.phase1, args.trace, args.proxy)
+    main(args.config, args.phase1, args.trace)

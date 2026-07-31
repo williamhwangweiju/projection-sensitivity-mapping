@@ -93,7 +93,3 @@ def test_policy_lists_are_coherent(config_path: Path):
     assert methods <= set(phase4_policies)
     assert baselines <= set(phase4_policies)
     assert not (methods & baselines)
-    if "static_fisher" in phase3_policies:
-        assert bool(config["profiling"]["proxy"]["enabled"]), (
-            "static_fisher requires profiling.proxy.enabled"
-        )

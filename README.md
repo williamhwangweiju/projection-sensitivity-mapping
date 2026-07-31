@@ -22,7 +22,6 @@ flowchart LR
     W[WikiText train data] --> P0[Phase 0<br/>HWA fine-tune]
     P0 --> P1[Phase 1<br/>projection sensitivity]
     C[WikiText calibration data] --> P1
-    P1 --> PX[Proxy scores<br/>gradient and magnitude]
     H[Hardware and fault config] --> P2[Phase 2<br/>tile-fidelity trace]
     P1 --> P3[Phase 3<br/>sharding and placement]
     PX --> P3
@@ -37,7 +36,6 @@ flowchart LR
 | --- | --- | --- | --- |
 | Phase 0 | How much all-analog quality does noise-aware fine-tuning recover before deployment? | `experiments/phase0_hwa_training/run_hwa_training.py` | [Phase 0](docs/PHASE_0.md) |
 | Phase 1 | Which GPT-2 projections are most sensitive to normalized analog weight noise? | `experiments/phase1_sensitivity/run_aihwkit_profiling.py` | [Phase 1](docs/PHASE_1.md) |
-| Proxy scores | How well do cheap gradient/magnitude proxies recover the measured ranking? | `experiments/phase1_sensitivity/run_proxy_sensitivity.py` | [Phase 1](docs/PHASE_1.md) |
 | Phase 2 | How does tile-level noise evolve under heterogeneity, drift, thermal variation, and localized faults? | `experiments/phase2_fidelity/run_fidelity_model.py` | [Phase 2](docs/PHASE_2.md) |
 | Phase 3 | How should analog shards be assigned to physical tile/tier slots? | `experiments/phase3_baselines/run_baseline_mappings.py` | [Phase 3](docs/PHASE_3.md) |
 | Phase 4 | How does the placement policy affect held-out NLL/PPL as tiles degrade? | `experiments/phase4_quality/run_hybrid_quality.py` | [Phase 4](docs/PHASE_4.md) |
@@ -71,9 +69,7 @@ The executable stages share these rules:
 - Phase 1's mapping score is mean `delta_nll_noise` relative to that
   projection's clipped nominal analog reference.
 - Phase 3 deploys every profiled projection as analog, preserves fused Q/K/V
-  row boundaries, and gives one shard to each physical tier. `static_fisher`
-  uses the proxy sidecar as its importance channel over identical shard
-  geometry.
+  row boundaries, and gives one shard to each physical tier.
 - Phase 4 keeps placements fixed over time and uses paired coordinate-level
   Gaussian fields so placement policies differ only through assigned tile
   scales.
@@ -111,8 +107,7 @@ python3 scripts/run_full_pipeline.py \
   --config configs/full_pipeline/gpt2_hybrid_3dcim.yaml
 ```
 
-The shell wrapper `scripts/run_full_pipeline.sh` honors `RUN_PHASE0` through
-`RUN_PHASE4`. The paper configuration is expensive: Phase 0 performs up to
+The paper configuration is expensive: Phase 0 performs up to
 2,000 optimizer steps, Phase 1 requires 540 calibration passes, and Phase 4
 performs 75 noisy held-out passes (5 timesteps × 3 realizations ×
 5 policies) plus reference evaluations.
@@ -125,7 +120,6 @@ python3 scripts/run_full_pipeline.py \
   --skip-phase0 \
   --skip-phase1 \
   --phase1-artifact data/results/phase1_sensitivity/<profile>.json \
-  --proxy-artifact data/results/phase1_sensitivity/proxy_sensitivity_<ts>.json \
   --skip-phase2 \
   --trace-artifact data/results/phase2_fidelity/fidelity_traces/mixed_96x8/seed_42/trace.npz \
   --skip-phase3 \
@@ -145,7 +139,6 @@ traces:
 python3 scripts/run_multiseed_pipeline.py \
   --config configs/full_pipeline/gpt2_hybrid_3dcim.yaml \
   --phase1 data/results/phase1_sensitivity/<profile>.json \
-  --proxy data/results/phase1_sensitivity/proxy_sensitivity_<ts>.json \
   --trace-seeds 41 43 44 45 \
   --vary-placement-seed \
   --output-root data/results/multiseed
@@ -167,7 +160,6 @@ python3 scripts/aggregate_multiseed.py \
 | --- | --- |
 | Phase 0 | `data/results/phase0_hwa_training/<model>/checkpoint_final/` and `hwa_metadata.json` |
 | Phase 1 | `data/results/phase1_sensitivity/<timestamped_profile>.json` and `*_ranking.csv` |
-| Proxy scores | `proxy_sensitivity_<timestamp>.json` and `proxy_rank_correlation.csv` |
 | Phase 2 | `fidelity_traces/<scenario>/seed_<seed>/trace.npz`, `metadata.json`, `timestep_summary.csv` |
 | Phase 3 | `phase3_manifest.json`, `phase3_summary.csv`, per-policy placement CSVs |
 | Phase 4 | `hybrid_quality_by_policy.csv`, `nominal_reference.json`, `hybrid_quality_summary.csv`, `paired_policy_summary.csv`, `phase4_metadata.json` |

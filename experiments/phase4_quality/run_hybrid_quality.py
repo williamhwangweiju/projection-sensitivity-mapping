@@ -57,13 +57,9 @@ def _records_for_proxy(
     measured_sensitivity: dict[str, float],
     sensitivity_floor: float,
 ) -> list[PlacementRecord]:
-    """Re-weight placement rows with measured Phase-1 sensitivity.
-
-    static_fisher placement CSVs carry Fisher importance in their
-    sensitivity/importance columns; re-weighting every policy with the
-    measured score keeps the proxy_variance column comparable across
-    policies.
-    """
+    """Rebuild PlacementRecords from CSV rows with the measured Phase-1
+    sensitivity (floored), so the proxy_variance diagnostic is computed on a
+    consistent importance channel for every policy."""
     fields = PlacementRecord.__dataclass_fields__
     records = []
     for row in rows:
@@ -123,7 +119,7 @@ def summarize_rows(
 def paired_differences(
     rows: list[dict[str, Any]],
     seed: int,
-    method_policies: Iterable[str] = ("static_sensitivity", "static_fisher"),
+    method_policies: Iterable[str] = ("static_sensitivity",),
     baseline_policies: Iterable[str] = ("hardware_only", "sequential", "random"),
 ) -> list[dict[str, Any]]:
     """Paired within-run comparisons over shared (timestep, realization) noise.
@@ -349,7 +345,7 @@ def main(
     summary_path = write_csv(output_root / "hybrid_quality_summary.csv", summaries)
     method_policies = [
         str(value)
-        for value in cfg.get("method_policies", ["static_sensitivity", "static_fisher"])
+        for value in cfg.get("method_policies", ["static_sensitivity"])
         if str(value) in set(policies)
     ]
     baseline_policies = [

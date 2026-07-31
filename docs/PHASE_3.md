@@ -17,9 +17,7 @@ same mapping timestep of the Phase-2 trace.
 1. the unified YAML configuration;
 2. the Phase 1 projection profile (authoritative candidate universe and
    measured sensitivity);
-3. the Phase 2 `trace.npz` (tile noise at the mapping timestep); and
-4. optionally the proxy sensitivity sidecar (required when the policy list
-   includes `static_fisher`).
+3. the Phase 2 `trace.npz` (tile noise at the mapping timestep).
 
 ## Quick start
 
@@ -27,8 +25,7 @@ same mapping timestep of the Phase-2 trace.
 python3 experiments/phase3_baselines/run_baseline_mappings.py \
   --config configs/full_pipeline/gpt2_hybrid_3dcim.yaml \
   --phase1 data/results/phase1_sensitivity/<profile>.json \
-  --trace data/results/phase2_fidelity/fidelity_traces/mixed_96x8/seed_42/trace.npz \
-  --proxy data/results/phase1_sensitivity/proxy_sensitivity_<ts>.json
+  --trace data/results/phase2_fidelity/fidelity_traces/mixed_96x8/seed_42/trace.npz
 ```
 
 ## Sharding model
@@ -46,9 +43,6 @@ where `shard_weight` is the shard's fraction of the projection's weights.
 The runner verifies up front that the required shard count fits the
 substrate (`num_tiles × tiers_per_tile`) and fails otherwise.
 
-For `static_fisher`, a second shard list is built with
-`build_shards(..., sensitivity_overrides=proxy fisher_score)` — identical
-geometry and shard IDs, different importance channel.
 
 ## Placement policies
 
@@ -58,7 +52,6 @@ geometry and shard IDs, different importance channel.
 | `sequential` | `tile_id`, then `tier_id` | Catalog order | Deterministic in-order placement |
 | `hardware_only` | Lowest tile noise first | Seeded permutation independent of sensitivity | Hardware-aware, workload-blind placement |
 | `static_sensitivity` | Lowest tile noise first | Highest measured importance first | Sensitivity-aware static placement |
-| `static_fisher` | Lowest tile noise first | Highest proxy importance first | Proxy-sensitivity-aware placement (no measured profiling) |
 
 The `hardware_only` permutation matters: GPT-2 catalog order begins with
 early blocks and correlates with sensitivity; permuting shards keeps that

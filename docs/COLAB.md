@@ -35,7 +35,7 @@ L4/A100; use `fp32` on a T4.
 1. Smoke run (`RUN_MODE = "smoke"`) to validate contracts.
 2. Phase 0 (`RUN_PHASE0 = 1`, everything else 0): ~1–2 h on L4, T4 slower.
    Auto-resumes from step checkpoints after preemption.
-3. Phase 1 + proxy (`RUN_PHASE1 = 1`): the dominant profiling cost, several
+3. Phase 1 (`RUN_PHASE1 = 1`): the dominant profiling cost, several
    hours on GPU (540 calibration passes).
 4. Phases 2–4 (`RUN_PHASE2 = RUN_PHASE3 = RUN_PHASE4 = 1`): Phases 2–3 take
    seconds; Phase 4 performs 75 noisy passes over the full held-out test set
@@ -55,14 +55,12 @@ Phases 0–1 are reused; each trace seed gets an isolated Phase 2–4 tree:
 python scripts/run_multiseed_pipeline.py \
   --config <generated Drive config> \
   --phase1 <profile>.json \
-  --proxy <proxy_sensitivity>.json \
   --trace-seeds 41 43 44 45 \
   --vary-placement-seed \
   --output-root <drive>/results/full/hwa/multiseed
 ```
 
-`--proxy` is required when the policy list includes `static_fisher`; the
-script fails fast if `model.checkpoint` does not exist. A completed
+The script fails fast if `model.checkpoint` does not exist. A completed
 single-seed run can join the aggregate by appending a
 `{trace_seed, output_root}` entry to `multiseed_run_manifest.yaml`.
 

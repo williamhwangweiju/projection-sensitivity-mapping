@@ -253,7 +253,7 @@ python3 scripts/run_full_pipeline.py \
   --config configs/full_pipeline/gpt2_hybrid_3dcim.yaml
 ```
 
-When Phase 1 is not skipped, the pipeline runs profiling, exports the ranking CSV, and then computes the proxy sensitivity sidecar. Use the direct Phase 1 commands when only the profile is wanted.
+When Phase 1 is not skipped, the pipeline runs profiling and exports the ranking CSV. Use the direct Phase 1 commands when only the profile is wanted.
 
 ## Model source
 
@@ -262,28 +262,6 @@ All Phase 1/4 runners load the model through
 [Phase 0](PHASE_0.md) HWA checkpoint), weights come from that directory;
 `null` loads pretrained `model.name` weights (the PTQ contrast). The resolved
 source is recorded as `metadata.model.source` in the profile.
-
-## Proxy sensitivity scores
-
-`experiments/phase1_sensitivity/run_proxy_sensitivity.py` computes two cheap
-per-projection baselines from the same calibration data with a handful of
-gradient passes (no AIHWKit):
-
-- `fisher_score = sigma_abs^2 × trace(diagonal empirical Fisher)` — the
-  second-order expected NLL increase under the deployment noise model, with
-  `sigma_abs = reference_noise_std × programmed_range`. The tied LM head is
-  temporarily untied onto a cloned parameter so its matmul gradient is
-  separable from the embedding path.
-- `magnitude_score = sigma_abs^2 × parameter_count / ||W_clipped||_F^2` — a
-  noise-to-signal energy ratio.
-
-The sidecar JSON (`proxy_sensitivity_<timestamp>.json`) feeds the
-`static_fisher` placement policy in [Phase 3](PHASE_3.md). When `--phase1` is supplied, Spearman rank
-correlations against the measured score are written to
-`proxy_rank_correlation.csv` — the headline evidence for whether cheap
-proxies can replace measured profiling. The pipeline driver runs this
-automatically when `profiling.proxy.enabled` is true (bounded by
-`profiling.proxy.max_batches`).
 
 ## JSON artifact contract
 

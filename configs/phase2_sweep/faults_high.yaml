@@ -108,9 +108,6 @@ profiling:
   - 10
   - 11
   antithetic: true
-  proxy:
-    enabled: true
-    max_batches: 32
 phase2:
   name: sweep_faults_high
   output_root: data/results/phase2_fidelity/fidelity_traces

@@ -125,9 +125,6 @@ profiling:
   - 22
   - 23
   antithetic: true
-  proxy:
-    enabled: true
-    max_batches: 32
 phase2:
   name: mixed_192x8
   output_root: data/results/medium/phase2_fidelity/fidelity_traces
@@ -184,17 +181,14 @@ phase3:
   - random
   - hardware_only
   - static_sensitivity
-  - static_fisher
 phase4:
   output_root: data/results/medium/phase4_quality
   policies:
   - random
   - hardware_only
   - static_sensitivity
-  - static_fisher
   method_policies:
   - static_sensitivity
-  - static_fisher
   baseline_policies:
   - random
   - hardware_only

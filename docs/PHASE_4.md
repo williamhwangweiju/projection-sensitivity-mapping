@@ -7,7 +7,7 @@ log-likelihood (NLL) and perplexity (PPL) on held-out data.
 
 The principal comparison is paired: for the same timestep and Gaussian
 realization, how much quality does each method policy
-(`static_sensitivity`, `static_fisher`) preserve relative to the `random`,
+(`static_sensitivity`) preserve relative to the `random`,
 `sequential`, and `hardware_only` baselines?
 
 ## Inputs

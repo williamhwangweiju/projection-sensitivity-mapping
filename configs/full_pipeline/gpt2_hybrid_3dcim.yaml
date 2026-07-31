@@ -1,6 +1,6 @@
 # All-analog GPT-2 deployment on a heterogeneous 3D compute-in-memory
 # substrate: hardware-aware fine-tuning (Phase 0), projection-sensitivity
-# profiling (Phase 1) with a gradient-proxy sidecar, tile-fidelity simulation
+# profiling (Phase 1), tile-fidelity simulation
 # (Phase 2), static placement policies (Phase 3), and held-out quality
 # evaluation (Phase 4).
 #
@@ -113,12 +113,6 @@ profiling:
   seed_stride: 1
   profile_blocks: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
   antithetic: true
-  # Gradient-square/magnitude proxy scores (run_proxy_sensitivity.py):
-  # supply the static_fisher placement channel and the Spearman rank
-  # correlation against the measured score.
-  proxy:
-    enabled: true
-    max_batches: 32
 
 phase2:
   name: mixed_96x8
@@ -173,7 +167,6 @@ phase3:
     - sequential
     - hardware_only
     - static_sensitivity
-    - static_fisher   # importance from the gradient proxy (profiling.proxy)
 
 phase4:
   output_root: data/results/phase4_hybrid_quality
@@ -182,9 +175,8 @@ phase4:
     - sequential
     - hardware_only
     - static_sensitivity
-    - static_fisher
   # Paired-summary comparisons: every method policy against every baseline.
-  method_policies: [static_sensitivity, static_fisher]
+  method_policies: [static_sensitivity]
   baseline_policies: [random, sequential, hardware_only]
   timesteps: [0, 30, 60, 90, 119]
   num_realizations: 3
