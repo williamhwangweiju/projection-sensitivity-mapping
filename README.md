@@ -24,7 +24,6 @@ flowchart LR
     C[WikiText calibration data] --> P1
     H[Hardware and fault config] --> P2[Phase 2<br/>tile-fidelity trace]
     P1 --> P3[Phase 3<br/>sharding and placement]
-    PX --> P3
     P2 --> P3
     T[Held-out test data] --> P4[Phase 4<br/>all-analog NLL/PPL]
     P1 --> P4
