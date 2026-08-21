@@ -298,7 +298,9 @@ placement is also the only policy that stays below even the diagnostic
 reference in all 75 lifetime conditions (smallest margin
 ${\approx}2.6$ PPL), whereas \policy{random} and \policy{sequential}
 cross it at end of life and \policy{hardware\_only} does in 6/15
-conditions (Table~\ref{tab:eol}).
+conditions (Table~\ref{tab:eol}). Whether $0.30$ nats is worth the
+analog gains is a workload question; what placement controls is the
+growth.
 
 \begin{figure}[t]
 \centering
@@ -419,25 +421,41 @@ Placement & mean & gap & 95\% CI & role \\
 \subsection{Robustness Across Hardware Scenarios}
 \label{sec:sweep}
 Because the Phase-2 parameters are scenario values, we vary them one
-factor at a time around the frozen configuration: fault count
-($4/16$ tiles), drift range ($0.25$--$0.60$), thermal correlation
-($\rho{=}0.7$), and tile-quality spread (mild $0.8$--$1.3\times$;
-harsh $0.5$--$2.2\times$); one trace each,
-$t \in \{0, 119\} \times 2$ realizations. The paired improvement is
-positive in \textbf{48/48} conditions (6 variants $\times$ 2 baselines
-$\times$ 2 timesteps $\times$ 2 realizations) and scales with
-tile-quality spread: $+0.027$ (mild), $+0.050$ (default, same
-protocol) and $+0.073$ nats (harsh) against the strongest baseline, a
-$2.7\times$ swing; the other variants lie between ($+0.042$ with 4
-faults, $+0.052$ with $\rho{=}0.7$, $+0.066$ with 16 faults, $+0.068$
-with doubled drift), and the gain over \policy{random} is $+0.043$ to
-$+0.123$ nats. Sensitivity-aware placement ends at $38.7$--$41.7$ PPL
-(penalty $0.29$--$0.36$ nats versus the pretrained model, worst under
-doubled drift), below the diagnostic reference in all six variants,
-whereas the baselines' mean end-of-life PPL crosses above it in the
-harsher half (\policy{random} in three variants,
+factor at a time around the frozen configuration (Table~\ref{tab:sweep};
+one trace each, $t \in \{0, 119\} \times 2$ realizations). The paired
+improvement is positive in \textbf{48/48} conditions (6 variants
+$\times$ 2 baselines $\times$ 2 timesteps $\times$ 2 realizations) and
+scales with tile-quality spread: $+0.027$ (mild), $+0.050$ (default,
+same protocol) and $+0.073$ nats (harsh) against the strongest
+baseline, a $2.7\times$ swing. Sensitivity-aware placement ends at
+$38.7$--$41.7$ PPL (penalty $0.29$--$0.36$ nats versus the pretrained
+model, worst under doubled drift), below the diagnostic reference in
+all six variants, whereas the baselines' mean end-of-life PPL crosses
+above it in the harsher half (\policy{random} in three variants,
 \policy{hardware\_only} in two). The less uniform the substrate, the
 more placement pays.
+
+\begin{table}[t]
+\centering
+\caption{Scenario sweep (one trace, $t \in \{0, 119\} \times 2$
+realizations): paired improvement of sensitivity-aware placement
+(nats) and its end-of-life PPL; diagnostic $= 42.91$.}
+\label{tab:sweep}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lccc}
+\toprule
+Variant & vs \policy{hw\_only} & vs \policy{random} & EOL PPL \\
+\midrule
+spread\_low ($0.8$--$1.3\times$) & $+0.027$ & $+0.043$ & 39.80 \\
+faults\_low (4 tiles) & $+0.042$ & $+0.073$ & 38.83 \\
+thermal\_low ($\rho{=}0.7$) & $+0.052$ & $+0.075$ & 38.71 \\
+faults\_high (16 tiles) & $+0.066$ & $+0.095$ & 39.56 \\
+drift\_high ($0.25$--$0.60$) & $+0.068$ & $+0.106$ & 41.69 \\
+spread\_high ($0.5$--$2.2\times$) & $+0.073$ & $+0.123$ & 38.85 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 % -------------------------------------------------------------------------
 \section{Discussion and Limitations}
@@ -461,6 +479,8 @@ generality is a hypothesis, not a result: the LM head's parameter share
 falls from ${\approx}30\%$ at 124M to a few percent at multi-billion
 scale, so the sensitivity concentration driving the effect may weaken
 with size; the prepared GPT-2 Medium configuration is the first test.
+The tile-quality map is the write-verify statistic gathered during
+programming, so the mapper's inputs exist in current deployment flows.
 
 \emph{Reproducibility:} code, configurations, and figure data:
 \url{https://github.com/williamhwangweiju/projection-sensitivity-mapping}.

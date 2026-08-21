@@ -59,14 +59,14 @@ def main(phase1: Path, out: Path, n_labels: int) -> None:
     colors = [ROLE_COLORS[roles[i]] for i in order]
     labels = [short_label(ids[i]) for i in order]
 
-    fig, ax = plt.subplots(figsize=(3.45, 1.42), dpi=400)
+    fig, ax = plt.subplots(figsize=(3.45, 1.58), dpi=400)
     ax.bar(ranks, m, color=colors, width=0.82, edgecolor="none", zorder=2)
     lo = np.maximum(m - s, m * 0.08)
     ax.errorbar(ranks, m, yerr=[m - lo, s], fmt="none", ecolor="#333333",
                 elinewidth=0.5, capsize=1.0, capthick=0.5, zorder=3)
     ax.set_yscale("log")
     ax.set_ylim(m.min() * 0.25, m.max() * 2.0)
-    ax.set_xlim(0.2, len(order) + 0.9)
+    ax.set_xlim(0.2, len(order) + 2.9)
     ax.set_xticks([1, 10, 20, 30, 40, 49])
     ax.set_xlabel("projection rank (1–49)", fontsize=6.5, labelpad=1.5)
     ax.set_ylabel(r"$\Delta\mathrm{NLL}_{\mathrm{noise}}$ (nats, log)", fontsize=6.5, labelpad=1.5)
@@ -102,19 +102,20 @@ def main(phase1: Path, out: Path, n_labels: int) -> None:
     ax.set_title(f"ranks 1–{len(top_ids)}: " + "; ".join(parts), fontsize=4.9, loc="left",
                  pad=2.0, color="#222222")
 
-    # anchored ~540x bracket between rank-1 and rank-49 levels
-    xb = len(order) + 0.6
+    # anchored ~540x bracket between rank-1 and rank-49 levels, drawn to the right of
+    # the last bar; the dotted anchor line stays behind the (opaque) legend.
+    xb = len(order) + 1.0
     top, bot = m[0], m[-1]
     ax.annotate("", xy=(xb, bot), xytext=(xb, top),
                 arrowprops=dict(arrowstyle="<->", color="#555555", lw=0.6, shrinkA=0, shrinkB=0))
-    ax.plot([ranks[0] + 0.45, xb], [top, top], color="#555555", lw=0.45, ls=":", zorder=6)
-    ax.text(xb - 0.4, np.sqrt(top * bot), f"≈{round(top / bot, -1):.0f}×", rotation=90,
-            ha="right", va="center", fontsize=6.0, color="#444444")
+    ax.plot([ranks[0] + 0.45, xb], [top, top], color="#555555", lw=0.45, ls=":", zorder=1)
+    ax.text(xb + 0.45, np.sqrt(top * bot), f"≈{round(top / bot, -1):.0f}×", rotation=90,
+            ha="left", va="center", fontsize=6.0, color="#444444")
 
     handles = [Patch(facecolor=ROLE_COLORS[r], label=r) for r in ROLE_ORDER]
     handles.append(Line2D([0], [0], color="#333333", lw=0.6, label="±1 std (5 antithetic pairs)"))
     ax.legend(handles=handles, loc="upper right", ncol=2, fontsize=5.3, frameon=True,
-              framealpha=0.85, borderpad=0.4, handlelength=1.3, handletextpad=0.5,
+              framealpha=1.0, borderpad=0.4, handlelength=1.3, handletextpad=0.5,
               columnspacing=0.9, labelspacing=0.3, bbox_to_anchor=(0.995, 0.995))
     fig.tight_layout(pad=0.2)
     out.parent.mkdir(parents=True, exist_ok=True)

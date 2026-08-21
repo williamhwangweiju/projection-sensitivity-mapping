@@ -120,7 +120,7 @@ def fig_combined(df: pd.DataFrame, seed: int, out: Path) -> None:
     """
     d = df[df.seed == seed]
     ts = sorted(d.t.unique())
-    fig, (ax, bx) = plt.subplots(2, 1, figsize=(3.45, 2.5), dpi=400, sharex=True,
+    fig, (ax, bx) = plt.subplots(2, 1, figsize=(3.45, 2.55), dpi=400, sharex=True,
                                  gridspec_kw=dict(height_ratios=[1.2, 1.0], hspace=0.09))
     FS, FT, FL = 6.5, 6.0, 5.4   # axis labels, ticks, legend
     band_patch = plt.Rectangle((0, 0), 1, 1, color="#bbbbbb", alpha=0.5)

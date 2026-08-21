@@ -36,7 +36,7 @@ FS = 5.8          # printed font size (pt) for box titles / row titles
 FS_SMALL = 5.1    # printed font size for sub-labels, legend, arrow labels
 
 # Drawing canvas: x in [0, 101.5], y in [0, 76]; figure is 3.45 x 2.32 in.
-FIG_W, FIG_H = 3.45, 2.15
+FIG_W, FIG_H = 3.45, 2.30
 
 
 def box(ax, x0, y0, w, h, text, *, sub=None, fill=GREY_FILL, edge=GREY_EDGE,
@@ -155,8 +155,8 @@ def main(out: Path) -> None:
     # DAC / ADC arrows between periphery and array
     arrow(ax, (26.4, 17.6), (31.2, 17.6), color="#4a5263", lw=0.7, ms=4)
     arrow(ax, (31.2, 11.0), (26.4, 11.0), color="#4a5263", lw=0.7, ms=4)
-    ax.text(28.8, 19.0, "DAC", fontsize=FS_SMALL, ha="center", va="center", color="#4a5263")
-    ax.text(28.8, 9.6, "ADC", fontsize=FS_SMALL, ha="center", va="center", color="#4a5263")
+    ax.text(28.8, 19.9, "DAC", fontsize=FS_SMALL, ha="center", va="center", color="#4a5263")
+    ax.text(28.8, 8.3, "ADC", fontsize=FS_SMALL, ha="center", va="center", color="#4a5263")
     # legend (own line, starts at the left so it stays inside the band)
     lx, ly = 3.5, 3.0
     items = [("quiet", TILE_SHADES["quiet"]), ("typical", TILE_SHADES["typical"]),
@@ -176,7 +176,8 @@ def main(out: Path) -> None:
     # ------------------------------------------------------------ vertical arrows
     # write-verify statistics: array -> tile-quality map (upward)
     arrow(ax, (84.0, ay0 + ah + 0.3), (84.0, 34.6), color=ORANGE_EDGE, lw=0.9, ms=5)
-    ax.text(83.0, 30.4, "write-verify statistics", fontsize=FS_SMALL, color="#8a4b0a",
+    # label sits inside the runtime band, beside the arrow, clear of both band borders
+    ax.text(82.8, ay0 + ah + 1.9, "write-verify statistics", fontsize=FS_SMALL, color="#8a4b0a",
             ha="right", va="center")
     # programmed weights: program tiles -> array (down the right margin)
     ax.plot([94.9, 97.8], [ya + ha / 2, ya + ha / 2], color="#4a5263", lw=0.8)
