@@ -114,9 +114,14 @@ def main(phase1: Path, out: Path, n_labels: int) -> None:
 
     handles = [Patch(facecolor=ROLE_COLORS[r], label=r) for r in ROLE_ORDER]
     handles.append(Line2D([0], [0], color="#333333", lw=0.6, label="±1 std (5 antithetic pairs)"))
+    # Legend right edge stops left of the bracket column (x = xb) so the bracket's
+    # arrowheads and the "~540x" label are never covered; the bars beneath the
+    # legend (ranks ~17-47) sit well below its bottom edge.
+    x0, x1 = ax.get_xlim()
+    legend_right = (xb - 0.9 - x0) / (x1 - x0)
     ax.legend(handles=handles, loc="upper right", ncol=2, fontsize=5.3, frameon=True,
               framealpha=1.0, borderpad=0.4, handlelength=1.3, handletextpad=0.5,
-              columnspacing=0.9, labelspacing=0.3, bbox_to_anchor=(0.995, 0.995))
+              columnspacing=0.9, labelspacing=0.3, bbox_to_anchor=(legend_right, 0.995))
     fig.tight_layout(pad=0.2)
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=400)

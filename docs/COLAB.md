@@ -30,8 +30,10 @@ I/O through the FUSE mount has caused mid-run mount failures).
 IBM's GPU bucket) for CPython 3.10–3.12 only; there is no cp313 wheel and
 no newer release. On Colab's Python 3.13 runtime Cell 3 therefore raises a
 `RuntimeError` instead of letting pip attempt (and fail) a from-source CMake
-build. Switch to a Python 3.12 runtime — Tools → Command palette → "Use
-fallback runtime version" while Colab offers it — and rerun from Cell 2.
+build. Switch to a Python 3.12 runtime: Runtime → Change runtime type →
+"Runtime version" dropdown → a past version with Python 3.12 (e.g. `2026.07`,
+Python 3.12.13; Colab keeps past versions for a year), keep the GPU, Save,
+then rerun from Cell 1.
 
 Set in Cell 1: `USE_HWA` (hardware-aware deployment vs the PTQ contrast) and
 the `RUN_PHASE...` flags. `hwa_training.precision: bf16` requires an
