@@ -7,6 +7,8 @@
 % =========================================================================
 \documentclass[journal]{IEEEtran}
 
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
 \usepackage{graphicx}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
@@ -392,24 +394,24 @@ unusable one.
 \caption{Placement span and paired gaps: mean $\dnll_{\mathrm{tile}}$
 (nats, degradation relative to nominal) over all timesteps,
 realizations, and five traces; ``gap'': paired $\dnll$ of each
-placement minus \policy{static\_sensitivity} per trace (5 timesteps
-$\times$ 3 realizations), five traces as units, 95\% CI ($t$, $n{=}5$);
+placement minus the proposed policy per trace (5 timesteps $\times$ 3
+realizations), five traces as units, 95\% CI ($t$, $n{=}5$);
 every baseline gap is positive in 5/5 traces.}
 \label{tab:bounds}
 \footnotesize
-\setlength{\tabcolsep}{1.8pt}
+\setlength{\tabcolsep}{0.7pt}
 \begin{tabular}{lcccl}
 \toprule
 Placement & mean & gap & 95\% CI & role \\
 \midrule
-\policy{adversarial} & 0.501 & $+0.328$ & $[0.268, 0.387]$ & worst-case bound \\
+\policy{adversarial} & 0.501 & $+0.328$ & $[0.268,0.387]$ & worst case \\
 \midrule
-\policy{random} & 0.281 & $+0.107$ & $[0.067, 0.147]$ & baseline \\
-\policy{sequential} & 0.280 & $+0.106$ & $[0.048, 0.164]$ & baseline \\
-\policy{hardware\_only} & 0.236 & $+0.063$ & $[0.041, 0.084]$ & strongest baseline \\
+\policy{random} & 0.281 & $+0.107$ & $[0.067,0.147]$ & baseline \\
+\policy{sequential} & 0.280 & $+0.106$ & $[0.048,0.164]$ & baseline \\
+\policy{hardware\_only} & 0.236 & $+0.063$ & $[0.041,0.084]$ & strongest baseline \\
 \policy{static\_sensitivity} & \textbf{0.173} & --- & --- & proposed \\
 \midrule
-\policy{oracle\_clairvoyant} & 0.171 & $-0.002$ & $[-0.008, 0.003]$ & clairvoyant ref. \\
+\policy{oracle\_clairvoyant} & 0.171 & $-0.002$ & $[-0.008,0.003]$ & clairvoyant ref. \\
 \bottomrule
 \end{tabular}
 \end{table}
