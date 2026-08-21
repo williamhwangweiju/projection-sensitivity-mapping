@@ -26,6 +26,13 @@ run the pipeline (switch runtime type, e.g. to a T4, and rerun from Cell 2).
 Hugging Face caches live on local disk, not on the Drive mount (heavy cache
 I/O through the FUSE mount has caused mid-run mount failures).
 
+**Python version.** `aihwkit==1.1.0` ships prebuilt wheels (PyPI CPU and
+IBM's GPU bucket) for CPython 3.10–3.12 only; there is no cp313 wheel and
+no newer release. On Colab's Python 3.13 runtime Cell 3 therefore raises a
+`RuntimeError` instead of letting pip attempt (and fail) a from-source CMake
+build. Switch to a Python 3.12 runtime — Tools → Command palette → "Use
+fallback runtime version" while Colab offers it — and rerun from Cell 2.
+
 Set in Cell 1: `USE_HWA` (hardware-aware deployment vs the PTQ contrast) and
 the `RUN_PHASE...` flags. `hwa_training.precision: bf16` requires an
 L4/A100; use `fp32` on a T4.
