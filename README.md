@@ -35,6 +35,7 @@ flowchart LR
 | --- | --- | --- | --- |
 | Phase 0 | How much all-analog quality does noise-aware fine-tuning recover before deployment? | `experiments/phase0_hwa_training/run_hwa_training.py` | [Phase 0](docs/PHASE_0.md) |
 | Phase 1 | Which GPT-2 projections are most sensitive to normalized analog weight noise? | `experiments/phase1_sensitivity/run_aihwkit_profiling.py` | [Phase 1](docs/PHASE_1.md) |
+| Phase 1 check | Is the one-at-a-time (additive) profile rank-stable when all 49 projections are noisy at once? | `experiments/phase1_sensitivity/run_leave_one_out.py` | [Phase 1 §Leave-one-out](docs/PHASE_1.md#leave-one-out-check-rank-stability-of-the-additive-profile) |
 | Phase 2 | How does tile-level noise evolve under heterogeneity, drift, thermal variation, and localized faults? | `experiments/phase2_fidelity/run_fidelity_model.py` | [Phase 2](docs/PHASE_2.md) |
 | Phase 3 | How should analog shards be assigned to physical tile/tier slots? | `experiments/phase3_baselines/run_baseline_mappings.py` | [Phase 3](docs/PHASE_3.md) |
 | Phase 4 | How does the placement policy affect held-out NLL/PPL as tiles degrade? | `experiments/phase4_quality/run_hybrid_quality.py` | [Phase 4](docs/PHASE_4.md) |
@@ -187,6 +188,7 @@ configs/full_pipeline/        Canonical + smoke configurations
 docs/                         Phase-by-phase methodology and artifact guides
 experiments/                  Executable stage entry points
 notebooks/                    Colab phase-selector notebook
+paper/                        CAL letter source, figure scripts (paper/scripts), figure data (paper/data)
 scripts/                      Orchestration, multiseed, aggregation, validation
 src/
   common/                     Dataset, metrics, projection, analog, loader

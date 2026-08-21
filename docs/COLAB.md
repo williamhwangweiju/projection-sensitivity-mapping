@@ -71,3 +71,22 @@ within-trace bootstrap intervals are descriptive only):
 python scripts/aggregate_multiseed.py \
   --manifest <drive>/results/full/hwa/multiseed/multiseed_run_manifest.yaml
 ```
+
+## Leave-one-out profile check (Cell 8h)
+
+The reviewer-requested rank-stability check of the additive Phase-1 profile
+(all 49 projections analog, one restored at a time; see
+[docs/PHASE_1.md](PHASE_1.md#leave-one-out-check-rank-stability-of-the-additive-profile)).
+It reuses the Phase-0 checkpoint and the Phase-1 JSON, costs about one Phase-1
+run (501 calibration passes), and writes `leave_one_out/` next to the Phase-1
+artifact:
+
+```bash
+python experiments/phase1_sensitivity/run_leave_one_out.py \
+  --config <generated Drive config> \
+  --phase1 <drive>/results/full/hwa/seed_42/phase1/<profile>.json \
+  --restore-mode nominal
+```
+
+The printed `rank_agreement` block (Spearman rho, Kendall tau, top-k overlap)
+is the number the paper's limitation paragraph asks for.

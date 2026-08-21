@@ -398,6 +398,39 @@ The smoke configuration performs nine passes. Runtime scales approximately with 
 
 Reproducibility support includes deterministic dataset construction, explicit projection-specific seeds, configuration contents and SHA-256, repository commit, software versions, model name, checksums, and dataset-window metadata. Remaining sources of variation include backend/device numerics, remotely resolved model or dataset revisions, and library versions. The artifact does not pin Hugging Face revisions.
 
+## Leave-one-out check (rank stability of the additive profile)
+
+Phase 1 measures each projection in isolation (one analog, 48 digital), so
+the profile is additive by construction while deployment noises all 49
+projections at once. `experiments/phase1_sensitivity/run_leave_one_out.py`
+measures the complementary leave-one-out profile on the all-analog model,
+
+```text
+s_loo(p) = E_a[ NLL(all 49 analog, noisy) - NLL(all analog, noisy, p restored) ]
+```
+
+with exactly the Phase-1 noise fields (`projection_noise_seed(realization_seed,
+projection_id)`), the same reference noise, and the same antithetic pairs, and
+reports the rank agreement with the isolated profile (Spearman rho, Kendall
+tau, top-k overlap) plus the sum of the two profiles against the measured
+all-analog noise penalty. `--restore-mode nominal` (default) keeps p analog but
+noise-free (clip + quantization only), isolating p's noise contribution the way
+Eq. (1) of the paper does; `--restore-mode digital` swaps p back to its
+floating-point module. Cost: 1 + 5 x 2 x (1 + 49) = 501 calibration passes on
+a GPU (comparable to Phase 1; needs the HWA checkpoint and the Phase-1 JSON):
+
+```bash
+python experiments/phase1_sensitivity/run_leave_one_out.py \
+  --config <generated Drive config> \
+  --phase1 <phase1 profile>.json \
+  --restore-mode nominal
+```
+
+Outputs land in `<phase1.output_root>/leave_one_out/` (JSON + CSV). The Colab
+notebook runs it from Cell 8h. `tests/test_leave_one_out.py` covers the
+rank-agreement statistics and the profiler's restore/un-restore bookkeeping
+with a pure-torch stand-in for AIHWKit.
+
 ## Validation and tests
 
 Run the root project suite with the repository root on Python's module path:
