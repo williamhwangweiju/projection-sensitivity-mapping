@@ -21,7 +21,11 @@ The profile is consumed only as a rank-stability check; see
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import json
 import math
+import os
+from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
@@ -157,9 +161,75 @@ class LeaveOneOutProfiler:
             setattr(state.handle.parent, state.handle.attribute, state.analog_module)
         self._write_noisy(projection_id, realization, sign)
 
+    # ------------------------------------------------------------ checkpoint
+    @staticmethod
+    def _key(realization: int, sign: float, projection_id: str | None = None) -> str:
+        base = f"{int(realization)}|{sign:+.0f}"
+        return base if projection_id is None else f"{base}|{projection_id}"
+
+    @staticmethod
+    def _load_checkpoint(path: Path, signature: Mapping[str, Any] | None,
+                         log: bool) -> dict[str, Any]:
+        """Return the cached evaluations at ``path`` if its signature matches.
+
+        A checkpoint written under a different signature (other restore mode,
+        batch count, noise level, Phase-1 artifact, ...) must never be reused:
+        it is moved aside with a ``_stale_<stamp>`` suffix and a fresh run starts.
+        """
+        empty = {"nominal": None, "all_nll": {}, "loo_nll": {}}
+        if not path.is_file():
+            return empty
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            if log:
+                print(f"[LOO] checkpoint {path} unreadable ({exc}); starting fresh.", flush=True)
+            return empty
+        stored = payload.get("signature")
+        if signature is not None and stored != dict(signature):
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            stale = path.with_name(f"{path.stem}_stale_{stamp}{path.suffix}")
+            os.replace(path, stale)
+            if log:
+                print(f"[LOO] checkpoint signature differs from this run; moved it to {stale} "
+                      f"and starting fresh.", flush=True)
+            return empty
+        cached = {
+            "nominal": payload.get("nominal"),
+            "all_nll": dict(payload.get("all_nll", {})),
+            "loo_nll": dict(payload.get("loo_nll", {})),
+        }
+        if log:
+            print(f"[LOO] resuming from {path}: {len(cached['all_nll'])} all-analog and "
+                  f"{len(cached['loo_nll'])} leave-one-out evaluations cached.", flush=True)
+        return cached
+
+    @staticmethod
+    def _save_checkpoint(path: Path, signature: Mapping[str, Any] | None,
+                         cached: Mapping[str, Any]) -> None:
+        payload = {
+            "signature": None if signature is None else dict(signature),
+            "updated_at_utc": datetime.now(timezone.utc).isoformat(),
+            "nominal": cached["nominal"],
+            "all_nll": cached["all_nll"],
+            "loo_nll": cached["loo_nll"],
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(payload, indent=1), encoding="utf-8")
+        os.replace(tmp, path)
+
     # ------------------------------------------------------------------ main
     def run(self, batches: list[Batch], *, projection_ids: Sequence[str] | None = None,
-            log: bool = True) -> dict[str, Any]:
+            log: bool = True, checkpoint_path: Path | None = None,
+            checkpoint_signature: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        """Measure the LOO profile.
+
+        With ``checkpoint_path`` every forward-pass result is persisted as soon as
+        it is measured, and a later call with the same ``checkpoint_signature``
+        skips everything already cached -- so a run interrupted by a runtime
+        disconnect resumes where it stopped instead of starting over.
+        """
         ids = list(self.hybrid.analog_projection_ids)
         if projection_ids is None:
             targets = ids
@@ -173,22 +243,53 @@ class LeaveOneOutProfiler:
         phase1_by_id = {str(r["projection_id"]): r for r in self.phase1_rows}
         signs = (1.0, -1.0) if self.antithetic else (1.0,)
 
+        cached = (self._load_checkpoint(checkpoint_path, checkpoint_signature, log)
+                  if checkpoint_path is not None else
+                  {"nominal": None, "all_nll": {}, "loo_nll": {}})
+
+        def persist() -> None:
+            if checkpoint_path is not None:
+                self._save_checkpoint(checkpoint_path, checkpoint_signature, cached)
+
         # zero-noise all-analog reference (clip + quantization only)
-        self.hybrid.restore_nominal_weights()
-        nominal_nll, nominal_ppl, token_count = evaluate_nll_ppl(self.model, batches, self.device)
+        if cached["nominal"] is None:
+            self.hybrid.restore_nominal_weights()
+            nominal_nll, nominal_ppl, token_count = evaluate_nll_ppl(self.model, batches, self.device)
+            cached["nominal"] = {"nll": float(nominal_nll), "ppl": float(nominal_ppl),
+                                 "tokens": int(token_count)}
+            persist()
+        nominal_nll = float(cached["nominal"]["nll"])
+        nominal_ppl = float(cached["nominal"]["ppl"])
+        token_count = int(cached["nominal"]["tokens"])
 
         all_nll: dict[tuple[int, float], float] = {}
         loo_nll: dict[str, dict[tuple[int, float], float]] = {p: {} for p in targets}
         try:
             for realization in range(self.num_seeds):
                 for sign in signs:
+                    key_all = self._key(realization, sign)
+                    pending = [p for p in targets if self._key(realization, sign, p) not in cached["loo_nll"]]
+                    if key_all in cached["all_nll"] and not pending:
+                        all_nll[(realization, sign)] = float(cached["all_nll"][key_all])
+                        for p in targets:
+                            loo_nll[p][(realization, sign)] = float(cached["loo_nll"][self._key(realization, sign, p)])
+                        continue
                     for p in ids:
                         self._write_noisy(p, realization, sign)
-                    nll_all, _, _ = evaluate_nll_ppl(self.model, batches, self.device)
+                    if key_all in cached["all_nll"]:
+                        nll_all = float(cached["all_nll"][key_all])
+                    else:
+                        nll_all, _, _ = evaluate_nll_ppl(self.model, batches, self.device)
+                        cached["all_nll"][key_all] = float(nll_all)
+                        persist()
                     all_nll[(realization, sign)] = nll_all
                     if log:
                         print(f"[LOO] realization {realization} sign {sign:+.0f}: all-analog NLL {nll_all:.5f}", flush=True)
                     for index, p in enumerate(targets, start=1):
+                        key_p = self._key(realization, sign, p)
+                        if key_p in cached["loo_nll"]:
+                            loo_nll[p][(realization, sign)] = float(cached["loo_nll"][key_p])
+                            continue
                         self._restore_one(p)
                         try:
                             nll_minus, _, _ = evaluate_nll_ppl(self.model, batches, self.device)
@@ -197,6 +298,8 @@ class LeaveOneOutProfiler:
                             # model never stays in a partially-digital state.
                             self._unrestore_one(p, realization, sign)
                         loo_nll[p][(realization, sign)] = nll_minus
+                        cached["loo_nll"][key_p] = float(nll_minus)
+                        persist()
                         if log:
                             print(f"[LOO]   {index}/{len(targets)} {p}: delta {nll_all - nll_minus:+.5f}", flush=True)
         finally:

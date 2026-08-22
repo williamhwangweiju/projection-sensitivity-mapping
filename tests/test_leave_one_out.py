@@ -57,9 +57,9 @@ def _tiny_gpt2():
     return transformers.GPT2LMHeadModel(config).eval()
 
 
-def test_profiler_control_flow_with_stubbed_analog(monkeypatch) -> None:
+def _stubbed_setup(monkeypatch):
+    """Patch the analog conversion with plain nn.Linear stubs; return (loo, config, batches, rows)."""
     torch = pytest.importorskip("torch")
-    from types import SimpleNamespace
 
     from src.common.projections import canonical_weight_bias, iter_gpt2_projections
     from src.common.manual_weights import prepare_projection_weight
@@ -129,7 +129,6 @@ def test_profiler_control_flow_with_stubbed_analog(monkeypatch) -> None:
     monkeypatch.setattr(loo, "HybridAnalogModel", _StubHybrid)
     monkeypatch.setattr(loo, "set_analog_weights_exact", _stub_set_weights)
 
-    model = _tiny_gpt2()
     config = {
         "experiment": {"seed": 42},
         "model": {"device": "cpu"},
@@ -144,8 +143,15 @@ def test_profiler_control_flow_with_stubbed_analog(monkeypatch) -> None:
     batches = [{"input_ids": ids, "attention_mask": torch.ones_like(ids), "labels": ids.clone()}]
     phase1_rows = [
         {"projection_id": pid, "sensitivity_score_for_mapping": float(i + 1)}
-        for i, pid in enumerate(h.projection_id for h in iter_gpt2_projections(model, include_lm_head=True))
+        for i, pid in enumerate(h.projection_id for h in iter_gpt2_projections(_tiny_gpt2(), include_lm_head=True))
     ]
+    return loo, config, batches, phase1_rows
+
+
+def test_profiler_control_flow_with_stubbed_analog(monkeypatch) -> None:
+    torch = pytest.importorskip("torch")
+    loo, config, batches, phase1_rows = _stubbed_setup(monkeypatch)
+    model = _tiny_gpt2()
     profiler = loo.LeaveOneOutProfiler(model, config, phase1_rows, restore_mode="nominal")
     assert profiler.hybrid.states, "stub conversion produced no projections"
     targets = list(profiler.hybrid.analog_projection_ids)[:3]
@@ -171,3 +177,65 @@ def test_profiler_control_flow_with_stubbed_analog(monkeypatch) -> None:
     pid = targets[0]
     state = profiler_d.hybrid.states[pid]
     assert getattr(state.handle.parent, state.handle.attribute) is state.analog_module
+
+
+def test_run_resumes_from_checkpoint(monkeypatch, tmp_path) -> None:
+    """An interrupted run resumes from the per-evaluation checkpoint and reproduces
+    the uninterrupted result exactly; a signature mismatch sets the file aside."""
+    pytest.importorskip("torch")
+    loo, config, batches, phase1_rows = _stubbed_setup(monkeypatch)
+    real_eval = loo.evaluate_nll_ppl
+    calls = {"n": 0, "fail_after": None}
+
+    def counting_eval(*args, **kwargs):
+        if calls["fail_after"] is not None and calls["n"] >= calls["fail_after"]:
+            raise RuntimeError("simulated runtime disconnect")
+        calls["n"] += 1
+        return real_eval(*args, **kwargs)
+
+    monkeypatch.setattr(loo, "evaluate_nll_ppl", counting_eval)
+
+    def new_profiler():
+        return loo.LeaveOneOutProfiler(_tiny_gpt2(), config, phase1_rows, restore_mode="nominal")
+
+    targets = list(new_profiler().hybrid.analog_projection_ids)[:3]
+    # 1 nominal + num_seeds(2) x signs(2) x (1 all-analog + 3 LOO) evaluations
+    full_count = 1 + 2 * 2 * (1 + len(targets))
+
+    reference = new_profiler().run(batches, projection_ids=targets, log=False)
+    assert calls["n"] == full_count
+
+    ckpt = tmp_path / "loo_partial.json"
+    sig = {"restore_mode": "nominal", "batches_used": 1, "tag": "A"}
+
+    # interrupted first attempt: 7 evaluations, then the "disconnect"
+    calls.update(n=0, fail_after=7)
+    with pytest.raises(RuntimeError, match="simulated"):
+        new_profiler().run(batches, projection_ids=targets, log=False,
+                           checkpoint_path=ckpt, checkpoint_signature=sig)
+    assert ckpt.is_file()
+
+    # resume: only the remaining evaluations run, result identical
+    calls.update(n=0, fail_after=None)
+    resumed = new_profiler().run(batches, projection_ids=targets, log=False,
+                                 checkpoint_path=ckpt, checkpoint_signature=sig)
+    assert calls["n"] == full_count - 7
+    for a, b in zip(reference["projections"], resumed["projections"]):
+        assert a["projection_id"] == b["projection_id"]
+        assert abs(a["sensitivity_loo_mean"] - b["sensitivity_loo_mean"]) < 1e-12
+    assert abs(reference["nominal_all_analog_nll"] - resumed["nominal_all_analog_nll"]) < 1e-12
+    assert abs(reference["noisy_all_analog_nll_mean"] - resumed["noisy_all_analog_nll_mean"]) < 1e-12
+
+    # a completed checkpoint replays with zero evaluations
+    calls.update(n=0)
+    replayed = new_profiler().run(batches, projection_ids=targets, log=False,
+                                  checkpoint_path=ckpt, checkpoint_signature=sig)
+    assert calls["n"] == 0
+    assert replayed["rank_agreement"] == resumed["rank_agreement"]
+
+    # a different signature must not reuse the cache: file set aside, full recompute
+    calls.update(n=0)
+    new_profiler().run(batches, projection_ids=targets, log=False,
+                       checkpoint_path=ckpt, checkpoint_signature={**sig, "tag": "B"})
+    assert calls["n"] == full_count
+    assert any(p.name.startswith("loo_partial_stale_") for p in tmp_path.iterdir())

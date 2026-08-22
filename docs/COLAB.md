@@ -99,3 +99,12 @@ python experiments/phase1_sensitivity/run_leave_one_out.py \
 
 The printed `rank_agreement` block (Spearman rho, Kendall tau, top-k overlap)
 is the number the paper's limitation paragraph asks for.
+
+The run is longer than a typical Colab session stays connected, so it
+checkpoints every forward pass to
+`leave_one_out/leave_one_out_<mode>_partial.json` on Drive. After a runtime
+disconnect: reconnect, rerun Cells 1–7 and Cell 8h with the same settings, and
+it resumes from the checkpoint (the cell streams its output and also tees it
+to `logs/leave_one_out_*.log`). A checkpoint from different settings (e.g. a
+`LOO_MAX_BATCHES` smoke run) is set aside automatically; tick
+`LOO_RESTART_FROM_SCRATCH` to discard it on purpose.

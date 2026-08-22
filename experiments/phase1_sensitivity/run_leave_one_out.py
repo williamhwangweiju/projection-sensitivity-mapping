@@ -9,7 +9,14 @@ Phase 1 itself (~10 + 49 x 10 forward passes over the calibration split).
 Usage (Colab, after Phase 1):
   python experiments/phase1_sensitivity/run_leave_one_out.py \
       --config configs/full_pipeline/gpt2_hybrid_3dcim.yaml \
-      --phase1 <phase1 JSON> [--restore-mode nominal|digital] [--max-batches N]
+      --phase1 <phase1 JSON> [--restore-mode nominal|digital] [--max-batches N] [--fresh]
+
+Resumable: every forward-pass result is checkpointed to
+<output dir>/leave_one_out_<mode>_partial.json as soon as it is measured; rerunning
+the same command after a runtime disconnect skips what is already cached. The
+checkpoint carries a signature (config/Phase-1 hashes, batch count, noise
+settings, ...) and is set aside, not reused, when any of that differs. --fresh
+discards it.
 """
 from __future__ import annotations
 
@@ -33,7 +40,7 @@ from src.profilers.leave_one_out import LeaveOneOutProfiler
 
 
 def main(config_path: Path, phase1_path: Path, restore_mode: str, max_batches: int | None,
-         output_dir: Path | None, projection_ids: list[str] | None) -> Path:
+         output_dir: Path | None, projection_ids: list[str] | None, fresh: bool = False) -> Path:
     config = load_yaml(config_path)
     profile = load_json(phase1_path)
     phase1_rows = list(profile["projections"])
@@ -42,11 +49,37 @@ def main(config_path: Path, phase1_path: Path, restore_mode: str, max_batches: i
     if max_batches is not None:
         batches = batches[: int(max_batches)]
     profiler = LeaveOneOutProfiler(model, config, phase1_rows, restore_mode=restore_mode)
-    result = profiler.run(batches, projection_ids=projection_ids)
 
     phase = config.get("phase1", {})
     out_dir = output_dir or (resolve_path(phase.get("output_root", "data/results/phase1_sensitivity")) / "leave_one_out")
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Per-evaluation checkpoint (resumable across Colab disconnects). The
+    # signature pins everything that changes the measured numbers, so a
+    # checkpoint from a different run (e.g. a --max-batches smoke test) is
+    # set aside rather than reused.
+    checkpoint_path = out_dir / f"leave_one_out_{restore_mode}_partial.json"
+    checkpoint_signature = {
+        "restore_mode": restore_mode,
+        "config_sha256": file_sha256(config_path),
+        "phase1_sha256": file_sha256(phase1_path),
+        "model_checkpoint": str(model_source.get("loaded_from") or model_source.get("checkpoint") or ""),
+        "batches_used": len(batches),
+        "num_seeds": profiler.num_seeds,
+        "seed_stride": profiler.seed_stride,
+        "antithetic": profiler.antithetic,
+        "base_seed": profiler.base_seed,
+        "reference_noise_std": float(profiler.settings.reference_noise_std),
+        "projection_ids": sorted(projection_ids) if projection_ids else None,
+    }
+    if fresh and checkpoint_path.exists():
+        checkpoint_path.unlink()
+        print(f"--fresh: discarded {checkpoint_path}")
+    print(f"Checkpoint (resumable): {checkpoint_path}")
+    result = profiler.run(batches, projection_ids=projection_ids,
+                          checkpoint_path=checkpoint_path,
+                          checkpoint_signature=checkpoint_signature)
+
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     payload: dict[str, Any] = {
         "metadata": {
@@ -97,5 +130,8 @@ if __name__ == "__main__":
     parser.add_argument("--max-batches", type=int, default=None, help="Smoke-test limit on calibration batches.")
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--projection-ids", nargs="*", default=None, help="Optional subset (smoke tests).")
+    parser.add_argument("--fresh", action="store_true",
+                        help="Discard the resumable checkpoint in the output dir and start over.")
     args = parser.parse_args()
-    main(args.config, args.phase1, args.restore_mode, args.max_batches, args.output_dir, args.projection_ids)
+    main(args.config, args.phase1, args.restore_mode, args.max_batches, args.output_dir,
+         args.projection_ids, fresh=args.fresh)

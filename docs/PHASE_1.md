@@ -427,8 +427,19 @@ python experiments/phase1_sensitivity/run_leave_one_out.py \
 ```
 
 Outputs land in `<phase1.output_root>/leave_one_out/` (JSON + CSV). The Colab
-notebook runs it from Cell 8h. `tests/test_leave_one_out.py` covers the
-rank-agreement statistics and the profiler's restore/un-restore bookkeeping
+notebook runs it from Cell 8h.
+
+The run is **resumable**: every forward-pass result is written to
+`<phase1.output_root>/leave_one_out/leave_one_out_<mode>_partial.json` as soon
+as it is measured, and rerunning the same command skips what is already cached
+(a Colab disconnect costs at most one calibration pass). The checkpoint carries
+a signature (config and Phase-1 SHA-256, model checkpoint, batch count, noise
+seeds/level, restore mode, projection subset); a checkpoint with a different
+signature — e.g. from a `--max-batches` smoke run — is renamed
+`*_stale_<stamp>.json` and never reused. `--fresh` discards it.
+
+`tests/test_leave_one_out.py` covers the rank-agreement statistics, the
+profiler's restore/un-restore bookkeeping, and interrupt/resume equivalence
 with a pure-torch stand-in for AIHWKit.
 
 ## Validation and tests
@@ -446,7 +457,7 @@ Avoid unscoped repository-wide pytest collection: the repository vendors simulat
 ## Current limitations and failure modes
 
 - The implementation assumes GPT-2 module structure and metadata fields; another causal LM is not supported merely because it loads through `AutoModelForCausalLM`.
-- There is no checkpoint, resume, incremental artifact save, or per-projection recovery. An interrupted full run loses unsaved in-memory progress.
+- The Phase-1 profiler itself has no checkpoint, resume, incremental artifact save, or per-projection recovery; an interrupted full Phase-1 run loses unsaved in-memory progress. (The leave-one-out check is the exception: it checkpoints per forward pass and resumes.)
 - Output filenames have second-resolution timestamps and no overwrite guard.
 - There is no artifact schema-version field and only limited validation at phase boundaries.
 - Block indices are not range-validated. A configuration that selects no transformer candidate and disables the LM head eventually fails when the runner accesses the first result.
