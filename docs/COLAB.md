@@ -100,6 +100,12 @@ python experiments/phase1_sensitivity/run_leave_one_out.py \
 The printed `rank_agreement` block (Spearman rho, Kendall tau, top-k overlap)
 is the number the paper's limitation paragraph asks for.
 
+Cost: one pass over the 243 calibration windows takes ~110 s on a T4 with all
+49 projections analog, so the full 501-pass run is ~15 h of GPU time. Cell 8h
+defaults to `LOO_BATCH_STRIDE = 5` (every 5th window, 49 windows spanning the
+validation split, ~3 h); the per-projection SEM is ~2.2× the full-set value.
+Set the stride to 1 for the full set.
+
 The run is longer than a typical Colab session stays connected, so it
 checkpoints every forward pass to
 `leave_one_out/leave_one_out_<mode>_partial.json` on Drive. After a runtime

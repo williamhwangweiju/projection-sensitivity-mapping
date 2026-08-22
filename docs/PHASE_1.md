@@ -438,6 +438,13 @@ seeds/level, restore mode, projection subset); a checkpoint with a different
 signature — e.g. from a `--max-batches` smoke run — is renamed
 `*_stale_<stamp>.json` and never reused. `--fresh` discards it.
 
+Cost control: a pass over all 243 windows takes ~110 s on a T4 (49 analog
+tiles), ~15 h for 501 passes. `--batch-stride k` evaluates every k-th window
+(an evenly spaced subset across the validation split; k=5 → 49 windows, ~3 h,
+per-projection SEM ~2.2× the full-set value); `--max-batches N` caps the count
+after striding. Both are recorded in the artifact's `dataset` metadata and in
+the checkpoint signature.
+
 `tests/test_leave_one_out.py` covers the rank-agreement statistics, the
 profiler's restore/un-restore bookkeeping, and interrupt/resume equivalence
 with a pure-torch stand-in for AIHWKit.

@@ -26,6 +26,7 @@ import json
 import math
 import os
 from pathlib import Path
+import time
 from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
@@ -264,6 +265,19 @@ class LeaveOneOutProfiler:
 
         all_nll: dict[tuple[int, float], float] = {}
         loo_nll: dict[str, dict[tuple[int, float], float]] = {p: {} for p in targets}
+        # progress bookkeeping: passes measured in this process and their wall time
+        total_passes = self.num_seeds * len(signs) * (1 + len(targets))
+        done_passes = len(cached["all_nll"]) + len(cached["loo_nll"])
+        passes_this_run = 0
+        seconds_this_run = 0.0
+
+        def progress() -> str:
+            if passes_this_run == 0:
+                return ""
+            per_pass = seconds_this_run / passes_this_run
+            remaining = max(total_passes - done_passes, 0) * per_pass
+            return f"  [{done_passes}/{total_passes} passes, {per_pass:.0f} s/pass, ETA {remaining / 3600:.1f} h]"
+
         try:
             for realization in range(self.num_seeds):
                 for sign in signs:
@@ -279,29 +293,37 @@ class LeaveOneOutProfiler:
                     if key_all in cached["all_nll"]:
                         nll_all = float(cached["all_nll"][key_all])
                     else:
+                        t0 = time.monotonic()
                         nll_all, _, _ = evaluate_nll_ppl(self.model, batches, self.device)
+                        seconds_this_run += time.monotonic() - t0
+                        passes_this_run += 1
+                        done_passes += 1
                         cached["all_nll"][key_all] = float(nll_all)
                         persist()
                     all_nll[(realization, sign)] = nll_all
                     if log:
-                        print(f"[LOO] realization {realization} sign {sign:+.0f}: all-analog NLL {nll_all:.5f}", flush=True)
+                        print(f"[LOO] realization {realization} sign {sign:+.0f}: all-analog NLL {nll_all:.5f}{progress()}", flush=True)
                     for index, p in enumerate(targets, start=1):
                         key_p = self._key(realization, sign, p)
                         if key_p in cached["loo_nll"]:
                             loo_nll[p][(realization, sign)] = float(cached["loo_nll"][key_p])
                             continue
                         self._restore_one(p)
+                        t0 = time.monotonic()
                         try:
                             nll_minus, _, _ = evaluate_nll_ppl(self.model, batches, self.device)
                         finally:
                             # Re-attach/re-noise p even if evaluation fails, so the
                             # model never stays in a partially-digital state.
                             self._unrestore_one(p, realization, sign)
+                        seconds_this_run += time.monotonic() - t0
+                        passes_this_run += 1
+                        done_passes += 1
                         loo_nll[p][(realization, sign)] = nll_minus
                         cached["loo_nll"][key_p] = float(nll_minus)
                         persist()
                         if log:
-                            print(f"[LOO]   {index}/{len(targets)} {p}: delta {nll_all - nll_minus:+.5f}", flush=True)
+                            print(f"[LOO]   {index}/{len(targets)} {p}: delta {nll_all - nll_minus:+.5f}{progress()}", flush=True)
         finally:
             self.hybrid.restore_nominal_weights()
             self.hybrid.assert_nominal_restored()

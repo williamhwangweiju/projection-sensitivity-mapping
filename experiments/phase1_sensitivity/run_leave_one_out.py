@@ -40,14 +40,30 @@ from src.profilers.leave_one_out import LeaveOneOutProfiler
 
 
 def main(config_path: Path, phase1_path: Path, restore_mode: str, max_batches: int | None,
-         output_dir: Path | None, projection_ids: list[str] | None, fresh: bool = False) -> Path:
+         output_dir: Path | None, projection_ids: list[str] | None, fresh: bool = False,
+         batch_stride: int = 1) -> Path:
     config = load_yaml(config_path)
     profile = load_json(phase1_path)
     phase1_rows = list(profile["projections"])
     model, tokenizer, model_source = load_model_and_tokenizer(config)
     batches, dataset_metadata = build_causal_lm_batches(config, tokenizer)
+    total_windows = len(batches)
+    if int(batch_stride) < 1:
+        raise ValueError("--batch-stride must be >= 1")
+    if int(batch_stride) > 1:
+        # Evenly spaced subset of the calibration windows (every k-th window),
+        # which samples the whole validation split instead of its first pages.
+        batches = batches[:: int(batch_stride)]
     if max_batches is not None:
         batches = batches[: int(max_batches)]
+    dataset_metadata = dict(dataset_metadata) | {
+        "windows_available": total_windows,
+        "batch_stride": int(batch_stride),
+        "max_batches": None if max_batches is None else int(max_batches),
+        "windows_used": len(batches),
+    }
+    print(f"Calibration windows: {len(batches)} of {total_windows} "
+          f"(stride {int(batch_stride)}, max {max_batches})", flush=True)
     profiler = LeaveOneOutProfiler(model, config, phase1_rows, restore_mode=restore_mode)
 
     phase = config.get("phase1", {})
@@ -65,6 +81,7 @@ def main(config_path: Path, phase1_path: Path, restore_mode: str, max_batches: i
         "phase1_sha256": file_sha256(phase1_path),
         "model_checkpoint": str(model_source.get("loaded_from") or model_source.get("checkpoint") or ""),
         "batches_used": len(batches),
+        "batch_stride": int(batch_stride),
         "num_seeds": profiler.num_seeds,
         "seed_stride": profiler.seed_stride,
         "antithetic": profiler.antithetic,
@@ -132,6 +149,9 @@ if __name__ == "__main__":
     parser.add_argument("--projection-ids", nargs="*", default=None, help="Optional subset (smoke tests).")
     parser.add_argument("--fresh", action="store_true",
                         help="Discard the resumable checkpoint in the output dir and start over.")
+    parser.add_argument("--batch-stride", type=int, default=1,
+                        help="Use every k-th calibration window (evenly spaced subset); "
+                             "k=5 cuts the ~15 h full run to ~3 h on a T4.")
     args = parser.parse_args()
     main(args.config, args.phase1, args.restore_mode, args.max_batches, args.output_dir,
-         args.projection_ids, fresh=args.fresh)
+         args.projection_ids, fresh=args.fresh, batch_stride=args.batch_stride)
