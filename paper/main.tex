@@ -8,15 +8,10 @@
 \documentclass[journal]{IEEEtran}
 
 \usepackage[T1]{fontenc}
-\usepackage{lmodern}
 \usepackage{graphicx}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
 \usepackage[caption=false,font=footnotesize]{subfig}
-\renewcommand{\arraystretch}{0.85}
-\setlength{\textfloatsep}{4pt plus 1pt minus 2pt}
-\setlength{\floatsep}{4pt plus 1pt minus 1pt}
-\setlength{\abovecaptionskip}{2pt}
 \usepackage[hidelinks]{hyperref}
 \makeatletter\g@addto@macro{\UrlBreaks}{\do\-}\makeatother
 
@@ -24,16 +19,13 @@
 \newcommand{\dnll}{\Delta\mathrm{NLL}}
 
 \begin{document}
-\setlength{\abovedisplayskip}{4pt}\setlength{\belowdisplayskip}{4pt}
-\setlength{\abovedisplayshortskip}{2pt}\setlength{\belowdisplayshortskip}{2pt}
 
 \title{Sensitivity-Aware Placement Sustains All-Analog GPT-2 Inference
 on Aging In-Memory Tiles}
 
 \author{Wei~Ju~Hwang%
 \thanks{W.~J.~Hwang is with the University of Toronto, Toronto, ON,
-Canada (e-mail: william.ju@mail.utoronto.ca).}%
-\thanks{Manuscript received XXXX; revised XXXX.}}
+Canada (e-mail: william.ju@mail.utoronto.ca).}}
 
 \markboth{IEEE Computer Architecture Letters}%
 {Hwang: Sensitivity-Aware Placement for All-Analog GPT-2 Inference}
@@ -44,7 +36,7 @@ Canada (e-mail: william.ju@mail.utoronto.ca).}%
 \begin{abstract}
 Analog in-memory computing (AIMC) tiles are heterogeneous at fabrication
 and degrade unevenly in the field, yet the assignment of weight blocks to
-physical tiles (\emph{placement}) is free at map time. We study whether
+physical tiles (\emph{placement}) is chosen once at map time. We study whether
 this decision determines deployment quality for a decoder-only
 language model executed \emph{entirely} on analog tiles. A five-phase
 pipeline combines hardware-aware fine-tuning of GPT-2, a measured
@@ -52,7 +44,8 @@ per-projection sensitivity profile, and static shard placement onto a
 simulated $96{\times}8$ substrate that drifts, fluctuates, and suffers
 faults over a 120-step aging trace. On the full WikiText-103
 test set, across five independent hardware traces, sensitivity-aware
-placement improves NLL over the strongest workload-blind baseline by
+placement reduces negative log-likelihood (NLL) relative to the strongest
+workload-blind baseline by
 $0.063$ nats averaged over the simulated lifetime and by $0.085$ nats
 at end of life,
 holding the end-of-life penalty relative to the pretrained digital model
@@ -61,7 +54,7 @@ keep growing. The one-shot placement is statistically indistinguishable
 from a clairvoyant placement that knows the entire degradation
 trajectory, and a six-scenario sweep finds the benefit monotone in
 tile-quality spread. Placement, not just noise tolerance, decides how
-fast an all-analog LLM deployment ages.
+fast an all-analog language-model deployment ages.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -72,8 +65,8 @@ hardware-aware training, reliability.
 % -------------------------------------------------------------------------
 \section{Introduction}
 \IEEEPARstart{A}{nalog} in-memory computing executes matrix--vector
-products inside memory crossbars, promising large energy and latency
-gains for DNN inference at the cost of storing weights as noisy
+products inside memory crossbars, promising energy and latency gains
+for deep neural network inference while storing weights as noisy
 conductances~\cite{joshi2020,rasch2023}. Real substrates are
 \emph{heterogeneous} and \emph{non-stationary}: programming-noise spread
 across tiles, conductance drift, spatially correlated thermal variation,
@@ -86,9 +79,9 @@ Existing heterogeneous-mapping work optimizes a different axis: which
 operations stay \emph{digital}. Layer-, channel-, and weight-granular
 methods partition workloads across analog tiles and digital compute
 units~\cite{lionheart,mps}, leaving the intra-analog assignment
-unspecified; in practice it defaults to the sequential or random
-orders we use as baselines. Fault-aware remapping \emph{within} a
-crossbar~\cite{xia2018,zhang2019} is CNN-scale and single-snapshot;
+unspecified; it typically defaults to sequential or random order.
+Fault-aware remapping \emph{within} a crossbar~\cite{xia2018,zhang2019}
+is convolutional-neural-network scale and single-snapshot;
 tile-granular quality differences of an aging substrate remain
 unaddressed. A recent letter
 distills the partitioning methods into a unified workflow and
@@ -104,7 +97,7 @@ fallback}, placement the only degree of freedom.
 under a documented analog noise contract and evaluates placement on the
 full WikiText-103 test set under time-resolved aging;
 (ii)~a paired, five-trace statistical design with identical noise
-coordinate fields across policies; (iii)~evidence that placement controls how fast
+fields across policies; (iii)~evidence that placement controls how fast
 the deployment ages (end-of-life penalty relative to the pretrained
 digital model $0.30$ nats, versus $0.39$--$0.45$ for every
 workload-blind policy); (iv)~adversarial and clairvoyant placement
@@ -115,7 +108,7 @@ bounds showing the one-shot policy is near-optimal.
 \label{sec:pipeline}
 
 The pipeline has five phases sharing one frozen configuration and one
-noise contract; only the hardware-trace seed varies between runs. All
+noise contract; only the hardware-trace seed varies. All
 experiments use GPT-2 Small (124M)~\cite{gpt2} and
 WikiText-103~\cite{wikitext} (train split for fine-tuning, validation for
 calibration, held-out test for all reported quality numbers), simulated
@@ -126,7 +119,7 @@ Fig.~\ref{fig:workflow} situates the contribution.
 \centering
 \includegraphics[width=\columnwidth]{figures/workflow.pdf}
 \caption{The sensitivity mapper replaces the toolchain's mapping slot
-in an LLM-on-CIM deployment, consuming a one-off model sensitivity
+in a language-model-on-AIMC deployment, consuming a one-off model sensitivity
 profile and a per-chip tile-quality map and emitting the shard-to-tile
 placement table; no additional runtime hardware. All 96 tiles are
 drawn.}
@@ -136,20 +129,22 @@ drawn.}
 \subsection{Noise Contract}
 Every analog projection is clipped once at $2.5\sigma$ of its weight
 distribution (symmetric about zero, as for differential conductance
-pairs), tiled into $512{\times}512$ crossbar shards, and
-converted with ${\sim}8$-bit ADC/DAC. Additive Gaussian weight noise is
+pairs), tiled into $512{\times}512$ crossbar shards, and converted using
+${\sim}8$-bit analog-to-digital and digital-to-analog converters
+(ADCs/DACs). Additive Gaussian weight noise is
 expressed as a normalized standard deviation, a fraction of the
 projection's programmed (peak-to-peak) range $R_p$, with deployment
-reference $\sigma_{\mathrm{ref}}{=}0.023$, calibrated to measured PCM
-programming noise~\cite{joshi2020,legallo2023}: $0.023R_p$ equals the
-RMS quantization error ($\Delta/\sqrt{12}$, $\Delta = R_p/2^{b}$) of a
+reference $\sigma_{\mathrm{ref}}{=}0.023$, calibrated to measured
+phase-change-memory (PCM) programming noise~\cite{joshi2020,legallo2023}.
+Here $0.023R_p$ equals the root-mean-square (RMS) quantization error
+($\Delta/\sqrt{12}$, $\Delta = R_p/2^{b}$) of a
 $b{\approx}3.7$-bit uniform quantizer, the sense in which we quote
 ${\approx}4$-bit effective precision.
 AIHWKit's internal noise sources are disabled, so this contract is the
 \emph{only} noise in the simulation; it coincides setting-for-setting
 with IBM's GPT-2 AIMC study~\cite{lammie2026}.
 
-\subsection{Phase 0: Hardware-Aware Fine-Tuning}
+\subsection{Phase 0: Hardware-Aware Fine-Tuning (HWA)}
 Post-training conversion of pretrained GPT-2 to this contract is
 non-functional (perplexity $29 \rightarrow \approx 3{,}146$ before any
 tile noise). We therefore fine-tune with perturb-forward/clean-update
@@ -162,14 +157,14 @@ accumulation, sequence length 512, bf16). The training envelope
 covers every tile at map time (class multipliers $0.65$--$1.70\times$)
 but not the late-life extremes: drift and faults push 5--12 of the 96
 tiles above $2\sigma_{\mathrm{ref}}$ by end of life (peak
-$3.1\sigma_{\mathrm{ref}}$ across the five traces), so the deployment is
+$3.0\sigma_{\mathrm{ref}}$ across the five traces), so the deployment is
 evaluated beyond its training envelope; Section~\ref{sec:r2}
 quantifies how much importance each policy leaves there.
 
 \subsection{Phase 1: Measured Sensitivity Profile}
 For each of the 49 projections $p$ (48 transformer projections + LM
 head), one projection at a time is made analog while the rest stay
-digital, and
+digital. Using token-weighted negative log-likelihood (NLL),
 \begin{equation}
 s(p) = \mathbb{E}_a\!\left[\,\mathrm{NLL}\big(W^{c}_p + \sigma_{\mathrm{ref}}
 R_p Z_a\big)\right] - \mathrm{NLL}_{\mathrm{ref}}(p),
@@ -179,7 +174,7 @@ $\mathrm{NLL}_{\mathrm{ref}}(p)$ that projection's clipped, quantized,
 zero-noise reference (isolating noise from conversion effects). The
 profile is additive by construction (each projection is measured in
 isolation), an assumption tested below. It is
-strongly structured (Fig.~\ref{fig:ranking}): the LM head ($0.061$
+strongly structured (Fig.~\ref{fig:ranking}): the language-model (LM) head ($0.061$
 nats) and block~0's attention output ($0.034$) dominate, with a
 rank-1-to-rank-49 spread of ${\sim}540\times$; the ordering matches
 the pretrained model's profile at ${\sim}100\times$ larger magnitudes,
@@ -200,15 +195,15 @@ top ten, 18/20 of the top twenty; the swaps are same-type projections
 of adjacent blocks within one standard error), but the magnitudes are
 not additive: the isolated profile sums to $0.34$ nats against a
 measured all-analog penalty of $0.154$, which the leave-one-out
-marginals reproduce exactly, and under joint noise the LM head's lead
+marginals reproduce to three decimal places, and under joint noise the LM head's lead
 over the runner-up widens from $1.8\times$ to $3.2\times$. The
-profile is a faithful ranking, not a penalty budget, and the ranking
-is all Phase~3 consumes.
+profile is a faithful ranking, not a penalty budget; Phase~3 consumes
+only the ranking.
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{figures/p1_ranking.png}
-\caption{Measured post-HWA sensitivity (one profiling seed) of all 49
+\caption{Measured post-training sensitivity (one profiling seed) of all 49
 GPT-2 projections at $\sigma_{\mathrm{ref}}{=}0.023$, colored by
 projection type; error bars: $\pm 1$ std over the five antithetic
 noise pairs. The LM head and early-block attention
@@ -218,9 +213,9 @@ measurement floor.}
 \end{figure}
 
 \subsection{Phase 2: Time-Varying Tile Fidelity}
-The substrate has 96 tiles, each carrying 8 \emph{tiers}: vertically
-stacked $512{\times}512$ crossbars that share the tile's periphery.
-Tile $i$'s normalized noise at timestep $t \in [0, 119]$ is
+The substrate has 96 tiles, each with 8 \emph{tiers}: vertically stacked
+$512{\times}512$ crossbars sharing the tile's periphery.
+Tile $i$'s normalized noise at timestep $t \in \{0,\ldots,119\}$ is
 \begin{equation}
 \sigma_i(t) = b_i\,\big(d_i(t) + H_{z(i)}(t)\big)\cdot f_i(t),
 \end{equation}
@@ -229,7 +224,8 @@ drawn from a 25/50/25\% healthy/typical/poor taxonomy
 ($0.65$--$1.70\times$, spanning reported array-to-array
 spread~\cite{joshi2020}); $d_i(t)$ ramps $+12$--$35\%$
 over the window (PCM drift exponents $\nu \approx
-0.03$--$0.1$~\cite{legallo2018}); $H_z$ is zone-correlated AR(1)
+0.03$--$0.1$~\cite{legallo2018}); $H_z$ is zone-correlated first-order
+autoregressive (AR(1))
 variation ($\rho = 0.94$, 8 zones)~\cite{wan2022}; and $f_i(t)$ steps
 permanently from $1$ to $1.25$--$1.70$ on 8 tiles at onsets $t \sim
 \mathcal{U}(35, 90)$~\cite{wan2022}. All eight tiers of a tile share
@@ -274,9 +270,10 @@ is evaluated through
 the AIHWKit analog forward path. The standard-normal field $Z_{p,r}$ is
 keyed by projection and realization only, so \emph{policies see
 identical noise coordinates and differ solely through tile scales}:
-paired differences are free of realization variance. Three references
+pairing removes independent-realization confounding and reduces sampling
+variance. Three references
 frame the results: the
-\emph{pretrained digital} model ($\mathrm{PPL} = 29.0$, NLL $3.368$ on
+\emph{pretrained digital} model (perplexity, PPL, $=29.0$; NLL $=3.368$ on
 the same windows), the alternative a practitioner would deploy; the \emph{nominal} all-analog
 model (clip + quantization, zero tile noise; $31.50$); and the HWA
 model's own \emph{unclipped digital forward} ($42.91$), a diagnostic
@@ -285,8 +282,8 @@ token (hereafter nats); perplexity ($e^{\mathrm{NLL}}$) is reported for
 intuition.
 The 15 within-trace samples share one correlated trajectory, so
 \emph{the five independent traces (seeds 41--45) are the statistical
-units}; intervals are Student-$t$ 95\% CIs with $n{=}5$ (hereafter
-95\% CI).
+units}; intervals are Student-$t$ 95\% confidence intervals (CIs) with
+$n{=}5$ (hereafter 95\% CI).
 
 % -------------------------------------------------------------------------
 \section{Results}
@@ -325,11 +322,11 @@ degradation.}
 
 \begin{table}[t]
 \centering
-\caption{End-of-life ($t{=}119$) test perplexity over 15 conditions
-(5 traces $\times$ 3 realizations): ``mean''/``worst'', mean and
-maximum PPL over the 15 conditions; ``std'', across the five trace
-means; $\Delta_{29}$, end-of-life NLL penalty versus the pretrained
-model (nats); ``$>$diag.'', conditions above the $42.91$ diagnostic.}
+\caption{End-of-life ($t{=}119$) test perplexity over 5 traces $\times$
+3 realizations: mean/worst over all 15 conditions; std, standard
+deviation across trace
+means; $\Delta_{29}$, NLL penalty versus pretrained; $>$diag., count
+above the $42.91$ diagnostic.}
 \label{tab:eol}
 \footnotesize
 \setlength{\tabcolsep}{4pt}
@@ -371,9 +368,8 @@ $5.2\%$ (\policy{hardware\_only}), $9.6$--$10.2\%$ (\policy{random},
 importance-weighted tile noise is $1.06\sigma_{\mathrm{ref}}$ versus
 $1.30$ and $1.38$--$1.39$. Hardware awareness alone recovers about
 $40\%$ of the benefit over \policy{random}; knowing \emph{which shard
-matters} recovers the rest. Placement also de-risks: end-of-life trace-to-trace spread is
-$2.7$--$4.6\times$ smaller than the baselines'
-(Table~\ref{tab:eol}).
+matters} recovers the rest. End-of-life trace-to-trace spread is
+$2.7$--$4.6\times$ smaller than the baselines' (Table~\ref{tab:eol}).
 
 \subsection{One-Shot Placement Is Near-Oracle}
 \label{sec:r3}
@@ -400,11 +396,10 @@ unusable one.
 
 \begin{table}[t]
 \centering
-\caption{Placement span and paired gaps: mean $\dnll_{\mathrm{tile}}$
-(nats, degradation relative to nominal) over all timesteps,
-realizations, and five traces; ``gap'': paired $\dnll$ of each
-placement minus the proposed policy per trace (5 timesteps $\times$ 3
-realizations), five traces as units, 95\% CI ($t$, $n{=}5$).}
+\caption{Placement span: mean $\dnll_{\mathrm{tile}}$ (nats versus
+nominal) over 5 timesteps $\times$ 3 realizations $\times$ 5 traces.
+Gap: paired $\dnll$ of each placement minus proposed, with trace-level
+95\% CI ($t$, $n{=}5$).}
 \label{tab:bounds}
 \footnotesize
 \setlength{\tabcolsep}{0.7pt}
@@ -438,7 +433,7 @@ strongest baseline, a $2.7\times$ swing, with the fault and drift
 variants in between ($+0.042$ to $+0.068$; $+0.043$ to $+0.123$
 against \policy{random}). Sensitivity-aware placement ends at
 $38.7$--$41.7$ PPL (penalty $0.29$--$0.36$ nats versus the pretrained
-model, worst under doubled drift), below the diagnostic reference in
+model, worst in the stronger-drift variant), below the diagnostic reference in
 all six variants, whereas the baselines' mean end-of-life PPL crosses
 it in the harsher half (\policy{random} in three variants,
 \policy{hardware\_only} in two).
@@ -451,14 +446,14 @@ degradation \emph{does} invalidate static mappings, but only
 workload-blind ones, and intra-analog tile-quality differences are the
 resource placement exploits.
 
-\emph{Hybrid alternative.} Fig.~\ref{fig:ranking} invites keeping the
-dominant projection or two digital. This is unevaluated under the
-aging trace, but the leave-one-out profile sets its scale: at the
-reference noise level a noise-free LM head recovers $0.038$ of the
-$0.154$-nat all-analog penalty, comparable to the $0.063$--$0.085$
-nats placement recovers over the strongest baseline, and placement
-already parks these shards on the quietest tiles; a Phase-4 hybrid row
-is the next step.
+\emph{Hybrid comparison.} Fig.~\ref{fig:ranking} suggests keeping one
+or two dominant projections digital. We have not evaluated that design
+under aging, so it is not a baseline here. At reference noise, the
+leave-one-out diagnostic finds that a noise-free LM head recovers
+$0.038$ of the $0.154$-nat penalty; placement recovers $0.063$--$0.085$
+nats and already puts these shards on the quietest tiles. A paired
+Phase-4 hybrid evaluation with digital energy and latency costs is
+required for cross-design comparison.
 
 Deliberate boundaries: simulation only, under a documented contract;
 tile-level noise; fixed substrate geometry (tile/tier counts, 90 spare
@@ -487,24 +482,25 @@ workload-blind policies reach $0.39$--$0.45$.
 % -------------------------------------------------------------------------
 
 \begin{thebibliography}{16}
-\scriptsize
 
 \bibitem{joshi2020}
 V.~Joshi \emph{et al.}, ``Accurate deep neural network inference using
-computational phase-change memory,'' \emph{Nat. Commun.}, vol.~11, 2020.
+computational phase-change memory,'' \emph{Nat. Commun.}, vol.~11,
+Art.~no.~2473, 2020.
 
 \bibitem{rasch2023}
 M.~J. Rasch \emph{et al.}, ``Hardware-aware training for large-scale and
 diverse deep learning inference workloads using in-memory
-computing-based accelerators,'' \emph{Nat. Commun.}, vol.~14, 2023.
+computing-based accelerators,'' \emph{Nat. Commun.}, vol.~14,
+Art.~no.~5282, 2023.
 
 \bibitem{legallo2018}
 M.~Le~Gallo \emph{et al.}, ``Mixed-precision in-memory computing,''
-\emph{Nat. Electron.}, vol.~1, 2018.
+\emph{Nat. Electron.}, vol.~1, pp.~246--253, 2018.
 
 \bibitem{wan2022}
 W.~Wan \emph{et al.}, ``A compute-in-memory chip based on resistive
-random-access memory,'' \emph{Nature}, vol.~608, 2022.
+random-access memory,'' \emph{Nature}, vol.~608, pp.~504--512, 2022.
 
 \bibitem{gpt2}
 A.~Radford \emph{et al.}, ``Language models are unsupervised multitask
@@ -513,12 +509,12 @@ learners,'' OpenAI, 2019.
 \bibitem{aihwkit}
 M.~J. Rasch \emph{et al.}, ``A flexible and fast PyTorch toolkit for
 simulating training and inference on analog crossbar arrays,'' in
-\emph{Proc. IEEE AICAS}, 2021.
+\emph{Proc. IEEE AICAS}, 2021, pp.~1--4.
 
 \bibitem{legallo2023}
 M.~Le~Gallo \emph{et al.}, ``Using the IBM analog in-memory hardware
 acceleration kit for neural network training and inference,''
-\emph{APL Mach. Learn.}, vol.~1, 2023.
+\emph{APL Mach. Learn.}, vol.~1, Art.~no.~041102, 2023.
 
 \bibitem{wikitext}
 S.~Merity \emph{et al.}, ``Pointer sentinel mixture models,'' in
@@ -526,22 +522,23 @@ S.~Merity \emph{et al.}, ``Pointer sentinel mixture models,'' in
 
 \bibitem{lammie2026}
 C.~Lammie, ``Heterogeneous mapping for analog in-memory computing
-accelerators: A unified workflow,'' \emph{IEEE Comput. Archit. Lett.},
-2026.
+accelerators: A unified workflow,'' arXiv:2606.02672, 2026.
 
 \bibitem{lionheart}
 C.~Lammie \emph{et al.}, ``LionHeart: A layer-based mapping framework
 for heterogeneous systems with analog in-memory computing tiles,''
-\emph{IEEE Trans. Emerg. Topics Comput.}, 2025.
+\emph{IEEE Trans. Emerg. Topics Comput.}, vol.~13, no.~4,
+pp.~1383--1395, 2025.
 
 \bibitem{mps}
 H.~Benmeziane \emph{et al.}, ``Supernetwork-based efficient mapping of
 deep learning applications to mixed-precision hardware using model
-adaptation,'' \emph{Nat. Commun.}, 2026.
+adaptation,'' \emph{Nat. Commun.}, vol.~17, Art.~no.~4501, 2026.
 
 \bibitem{xia2018}
 L.~Xia \emph{et al.}, ``Stuck-at fault tolerance in RRAM computing
-systems,'' \emph{IEEE JETCAS}, vol.~8, no.~1, 2018.
+systems,'' \emph{IEEE J. Emerg. Sel. Topics Circuits Syst.}, vol.~8,
+no.~1, pp.~102--111, 2018.
 
 \bibitem{zhang2019}
 B.~Zhang \emph{et al.}, ``Handling stuck-at-faults in memristor crossbar

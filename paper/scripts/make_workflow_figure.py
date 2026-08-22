@@ -22,6 +22,7 @@ from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 matplotlib.rcParams["pdf.fonttype"] = 42   # TrueType, not Type 3 (IEEE PDF eXpress)
+matplotlib.rcParams["font.family"] = "Arial"
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch, Rectangle
 import numpy as np
@@ -32,11 +33,11 @@ ORANGE_BAND, ORANGE_EDGE = "#fff4e3", "#d98b2b"
 TILE_SHADES = {"quiet": "#fbe3b3", "typical": "#f2b85c", "noisy": "#c4782a"}
 RED = "#c0392b"
 
-FS = 5.8          # printed font size (pt) for box titles / row titles
-FS_SMALL = 5.1    # printed font size for sub-labels, legend, arrow labels
+FS = 6.8          # printed font size (pt) for box titles / row titles
+FS_SMALL = 6.2    # printed font size for sub-labels, legend, arrow labels
 
 # Drawing canvas: x in [0, 101.5], y in [0, 76]; figure is 3.45 x 2.32 in.
-FIG_W, FIG_H = 3.45, 2.30
+FIG_W, FIG_H = 3.45, 2.32
 
 
 def box(ax, x0, y0, w, h, text, *, sub=None, fill=GREY_FILL, edge=GREY_EDGE,
@@ -84,7 +85,7 @@ def main(out: Path) -> None:
     for x0, w, t, s, f, e, ls in boxes_a:
         box(ax, x0, ya, w, ha, t, sub=s, fill=f, edge=e, ls=ls,
             bold=(t == "Mapping slot"), text_color=(BLUE_DARK if t == "Mapping slot" else "#1b1f27"),
-            sub_dy=0.25, sub_fs=FS_SMALL - 0.6, title_dy=0.72)
+            sub_dy=0.25, sub_fs=FS_SMALL - 0.3, title_dy=0.72)
     for (x0, w, *_), (x1, *_) in zip(boxes_a[:-1], boxes_a[1:]):
         arrow(ax, (x0 + w + 0.4, ya + ha / 2), (x1 - 0.4, ya + ha / 2))
     ax.text(80.0, ya + ha + 1.4, "placement table π", fontsize=FS_SMALL, color=BLUE_DARK,
@@ -118,7 +119,7 @@ def main(out: Path) -> None:
     yc0, yc1 = 1.0, 29.3
     ax.add_patch(FancyBboxPatch((1.5, yc0), 97, yc1 - yc0, boxstyle="round,pad=0.3",
                                 linewidth=0.8, edgecolor=ORANGE_EDGE, facecolor=ORANGE_BAND))
-    ax.text(3.0, yc1 - 1.8, "CIM accelerator — runtime inference", fontsize=FS,
+    ax.text(3.0, yc1 - 1.8, "CIM accelerator: runtime inference", fontsize=FS,
             fontweight="bold", color="#8a4b0a", va="center")
     box(ax, 3.0, 5.6, 23.0, 19.2, "Digital periphery", fill="#ffffff", edge=ORANGE_EDGE,
         fs=FS, sub="embedding lookup\nLayerNorm, softmax\nGELU, residual adds\ntoken loop control",

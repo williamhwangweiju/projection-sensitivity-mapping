@@ -17,6 +17,7 @@ from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")
+matplotlib.rcParams["font.family"] = "Arial"
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -58,11 +59,11 @@ def fig_ppl(df: pd.DataFrame, seed: int, out: Path) -> None:
     band_patch = plt.Rectangle((0, 0), 1, 1, color="#bbbbbb", alpha=0.5)
     handles, labels = ax.get_legend_handles_labels()
     handles.append(band_patch)
-    labels.append("min–max range (n = 3)")
+    labels.append("min-max range (n = 3)")
     ax.legend(handles, labels, loc="upper left", fontsize=9,
               ncol=2, frameon=True, framealpha=0.95, columnspacing=1.0)
     ax.set_xticks(ts)
-    ax.set_xlabel("trace timestep (hardware degradation →)", fontsize=10)
+    ax.set_xlabel("trace timestep (hardware degradation ->)", fontsize=10)
     ax.set_ylabel("held-out test perplexity", fontsize=10)
     ax.set_ylim(28.0, 47.8)
     ax.grid(color="#e5e5e5", lw=0.6)
@@ -97,11 +98,11 @@ def fig_paired(df: pd.DataFrame, seed: int, out: Path) -> None:
     handles, labels = ax.get_legend_handles_labels()
     order = [labels.index("vs hardware_only"), labels.index("vs random"), labels.index("vs sequential")]
     handles = [handles[i] for i in order] + [band_patch]
-    labels = [labels[i] for i in order] + ["min–max range (n = 3)"]
+    labels = [labels[i] for i in order] + ["min-max range (n = 3)"]
     ax.legend(handles, labels, loc="upper left", fontsize=9, frameon=True, framealpha=0.95)
     ax.set_xticks(ts)
     ax.set_xlim(ts[0] - 3, ts[-1] + 36)
-    ax.set_xlabel("trace timestep (hardware degradation →)", fontsize=10)
+    ax.set_xlabel("trace timestep (hardware degradation ->)", fontsize=10)
     ax.set_ylabel("paired ΔNLL improvement (nats)", fontsize=10)
     ax.grid(color="#e5e5e5", lw=0.6)
     for s in ("top", "right"):
@@ -120,9 +121,9 @@ def fig_combined(df: pd.DataFrame, seed: int, out: Path) -> None:
     """
     d = df[df.seed == seed]
     ts = sorted(d.t.unique())
-    fig, (ax, bx) = plt.subplots(2, 1, figsize=(3.45, 2.55), dpi=400, sharex=True,
+    fig, (ax, bx) = plt.subplots(2, 1, figsize=(3.45, 2.60), dpi=400, sharex=True,
                                  gridspec_kw=dict(height_ratios=[1.2, 1.0], hspace=0.09))
-    FS, FT, FL = 6.5, 6.0, 5.4   # axis labels, ticks, legend
+    FS, FT, FL = 7.5, 7.0, 6.3   # axis labels, ticks, legend
     band_patch = plt.Rectangle((0, 0), 1, 1, color="#bbbbbb", alpha=0.5)
     # ---------------------------------------------------------------- (a) perplexity
     pol_handles, pol_labels = [], []
@@ -140,7 +141,7 @@ def fig_combined(df: pd.DataFrame, seed: int, out: Path) -> None:
     h_diag = ax.axhline(DIAG_PPL, color="#555555", ls="-.", lw=0.8)
     h_nom = ax.axhline(NOMINAL_PPL, color="#1f5fa8", ls=":", lw=0.9)
     h_pre = ax.axhline(PRETRAINED_PPL, color="#111111", ls="--", lw=0.9)
-    leg1 = ax.legend(pol_handles + [band_patch], pol_labels + ["min–max range (n = 3)"],
+    leg1 = ax.legend(pol_handles + [band_patch], pol_labels + ["min-max range (n = 3)"],
                      loc="upper left", fontsize=FL, ncol=2, frameon=True, framealpha=0.95,
                      columnspacing=0.8, handlelength=1.6, handletextpad=0.5, borderpad=0.35,
                      labelspacing=0.25)
@@ -174,13 +175,13 @@ def fig_combined(df: pd.DataFrame, seed: int, out: Path) -> None:
         if not np.all(np.diff(mean) > 0):
             print(f"WARNING: {pol} curve not strictly increasing: {mean}")
     bx.axhline(0.0, color="#333333", lw=0.7)
-    leg = bx.legend(handles + [band_patch], labels + ["min–max range (n = 3)"], loc="upper left",
+    leg = bx.legend(handles + [band_patch], labels + ["min-max range (n = 3)"], loc="upper left",
                     fontsize=FL, frameon=True, framealpha=0.95, handlelength=1.6,
                     handletextpad=0.5, borderpad=0.35, labelspacing=0.25)
     leg.get_texts()[0].set_fontweight("bold")   # the headline comparison
     bx.set_xticks(ts)
     bx.set_xlim(ts[0] - 3, ts[-1] + 5)
-    bx.set_xlabel("trace timestep (hardware degradation →)", fontsize=FS, labelpad=2)
+    bx.set_xlabel("trace timestep (hardware degradation ->)", fontsize=FS, labelpad=2)
     bx.set_ylabel("paired ΔNLL (nats)", fontsize=FS, labelpad=2)
     bx.set_ylim(-0.008, 0.165)
     bx.grid(color="#e5e5e5", lw=0.4)

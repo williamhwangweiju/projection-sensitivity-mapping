@@ -21,6 +21,7 @@ from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")
+matplotlib.rcParams["font.family"] = "Arial"
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
@@ -59,7 +60,7 @@ def main(phase1: Path, out: Path, n_labels: int) -> None:
     colors = [ROLE_COLORS[roles[i]] for i in order]
     labels = [short_label(ids[i]) for i in order]
 
-    fig, ax = plt.subplots(figsize=(3.45, 1.58), dpi=400)
+    fig, ax = plt.subplots(figsize=(3.45, 1.68), dpi=400)
     ax.bar(ranks, m, color=colors, width=0.82, edgecolor="none", zorder=2)
     lo = np.maximum(m - s, m * 0.08)
     ax.errorbar(ranks, m, yerr=[m - lo, s], fmt="none", ecolor="#333333",
@@ -68,9 +69,9 @@ def main(phase1: Path, out: Path, n_labels: int) -> None:
     ax.set_ylim(m.min() * 0.25, m.max() * 2.0)
     ax.set_xlim(0.2, len(order) + 2.9)
     ax.set_xticks([1, 10, 20, 30, 40, 49])
-    ax.set_xlabel("projection rank (1–49)", fontsize=6.5, labelpad=1.5)
-    ax.set_ylabel(r"$\Delta\mathrm{NLL}_{\mathrm{noise}}$ (nats, log)", fontsize=6.5, labelpad=1.5)
-    ax.tick_params(labelsize=6, length=2, pad=1.5, width=0.5)
+    ax.set_xlabel("projection rank (1-49)", fontsize=7.4, labelpad=1.5)
+    ax.set_ylabel(r"$\Delta\mathrm{NLL}_{\mathrm{noise}}$ (nats, log)", fontsize=7.4, labelpad=1.5)
+    ax.tick_params(labelsize=6.8, length=2, pad=1.5, width=0.5)
     ax.grid(axis="y", which="major", color="#dddddd", lw=0.4, zorder=0)
     for spine in ("top", "right"):
         ax.spines[spine].set_visible(False)
@@ -99,8 +100,10 @@ def main(phase1: Path, out: Path, n_labels: int) -> None:
             parts.append(f"b{blocks[0]}/{role}")
         else:
             parts.append(f"{role} of blocks {', '.join(blocks)}")
-    ax.set_title(f"ranks 1–{len(top_ids)}: " + "; ".join(parts), fontsize=4.9, loc="left",
-                 pad=2.0, color="#222222")
+    split = max(1, len(parts) // 2)
+    title = (f"ranks 1-{len(top_ids)}: " + "; ".join(parts[:split])
+             + "\n" + "; ".join(parts[split:]))
+    ax.set_title(title, fontsize=6.1, loc="left", pad=2.0, color="#222222")
 
     # anchored ~540x bracket between rank-1 and rank-49 levels, drawn to the right of
     # the last bar; the dotted anchor line stays behind the (opaque) legend.
@@ -110,7 +113,7 @@ def main(phase1: Path, out: Path, n_labels: int) -> None:
                 arrowprops=dict(arrowstyle="<->", color="#555555", lw=0.6, shrinkA=0, shrinkB=0))
     ax.plot([ranks[0] + 0.45, xb], [top, top], color="#555555", lw=0.45, ls=":", zorder=1)
     ax.text(xb + 0.45, np.sqrt(top * bot), f"≈{round(top / bot, -1):.0f}×", rotation=90,
-            ha="left", va="center", fontsize=6.0, color="#444444")
+            ha="left", va="center", fontsize=6.8, color="#444444")
 
     handles = [Patch(facecolor=ROLE_COLORS[r], label=r) for r in ROLE_ORDER]
     handles.append(Line2D([0], [0], color="#333333", lw=0.6, label="±1 std (5 antithetic pairs)"))
@@ -119,7 +122,7 @@ def main(phase1: Path, out: Path, n_labels: int) -> None:
     # legend (ranks ~17-47) sit well below its bottom edge.
     x0, x1 = ax.get_xlim()
     legend_right = (xb - 0.9 - x0) / (x1 - x0)
-    ax.legend(handles=handles, loc="upper right", ncol=2, fontsize=5.3, frameon=True,
+    ax.legend(handles=handles, loc="upper right", ncol=2, fontsize=6.0, frameon=True,
               framealpha=1.0, borderpad=0.4, handlelength=1.3, handletextpad=0.5,
               columnspacing=0.9, labelspacing=0.3, bbox_to_anchor=(legend_right, 0.995))
     fig.tight_layout(pad=0.2)
