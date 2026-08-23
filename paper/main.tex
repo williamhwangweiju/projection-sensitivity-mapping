@@ -39,7 +39,8 @@ Analog in-memory computing (AIMC) tiles are heterogeneous at fabrication
 and degrade unevenly in the field, yet the assignment of weight blocks to
 physical tiles (\emph{placement}) is chosen once at map time. We study whether
 this decision determines deployment quality for a decoder-only
-language model executed \emph{entirely} on analog tiles. A five-phase
+language model with \emph{all 49 weight projections} on analog tiles.
+A five-phase
 pipeline combines hardware-aware fine-tuning of GPT-2, a measured
 per-projection sensitivity profile, and static shard placement onto a
 simulated 96-tile, 8-tier substrate that drifts, fluctuates, and suffers
@@ -91,7 +92,7 @@ decoder-only transformer~\cite{lammie2026}, leaving two questions
 open: whether time-dependent degradation invalidates static mappings,
 and how mapping should exploit intra-analog tile-quality differences.
 We answer both for a fully analog deployment: \emph{no digital
-fallback}, placement the only degree of freedom.
+projection fallback}, placement the only degree of freedom.
 
 \textbf{Contributions.}
 (i)~An end-to-end pipeline that makes pretrained GPT-2 functional
@@ -112,7 +113,7 @@ The pipeline has five phases sharing one frozen configuration and one
 noise contract; only the hardware-trace seed varies. All
 experiments use GPT-2 Small (124M)~\cite{gpt2} and
 WikiText-103~\cite{wikitext} (train split for fine-tuning, validation for
-calibration, held-out test for all reported quality numbers), simulated
+calibration, held-out test for all deployment-quality results), simulated
 with IBM's AIHWKit~\cite{aihwkit,legallo2023}.
 Fig.~\ref{fig:workflow} situates the contribution.
 
@@ -122,8 +123,7 @@ Fig.~\ref{fig:workflow} situates the contribution.
 \caption{The sensitivity mapper replaces the toolchain's mapping slot
 in a language-model-on-AIMC deployment, consuming a one-off model sensitivity
 profile and a per-chip tile-quality map and emitting the shard-to-tile
-placement table; no additional runtime hardware. All 96 tiles are
-drawn.}
+placement table; no additional runtime hardware.}
 \label{fig:workflow}
 \end{figure}
 
@@ -142,8 +142,8 @@ Here $0.023R_p$ equals the root-mean-square (RMS) quantization error
 $b{\approx}3.7$-bit uniform quantizer, i.e., ${\approx}4$-bit effective
 weight precision.
 \mbox{AIHWKit}'s internal noise sources are disabled, so this contract is the
-\emph{only} noise in the simulation; it coincides setting-for-setting
-with IBM's GPT-2 AIMC study~\cite{lammie2026}.
+\emph{only} noise in the simulation; it matches the settings of IBM's
+GPT-2 AIMC study~\cite{lammie2026}.
 
 \subsection{Phase 0: Hardware-Aware Fine-Tuning (HWA)}
 Post-training conversion of pretrained GPT-2 to this contract is
@@ -153,8 +153,8 @@ noise injection~\cite{joshi2020,rasch2023}: each forward pass clips via
 a straight-through estimator and perturbs every projection
 with $\sigma \sim \mathcal{U}(0, 2\sigma_{\mathrm{ref}})$ (2{,}000 steps,
 AdamW, learning rate $5{\times}10^{-5}$ with cosine decay and 100
-warmup steps, weight decay 0.01, batch size 8 with 4-step gradient
-accumulation, sequence length 512, bfloat16). The training envelope
+warmup steps, weight decay 0.01, batch 8 with 4-step accumulation,
+sequence length 512, bfloat16). The training envelope
 covers every tile at map time (class multipliers $0.65$--$1.70\times$)
 but not the late-life extremes: drift and faults push 5--12 of the 96
 tiles above $2\sigma_{\mathrm{ref}}$ by end of life (peak
@@ -178,10 +178,11 @@ profile assumes additivity (each projection is measured in
 isolation), an assumption tested below. It is
 strongly structured (Fig.~\ref{fig:ranking}): the LM head ($0.061$
 nats) and block~0's attention output ($0.034$) dominate, with a
-rank-1-to-rank-49 spread of ${\approx}540\times$; the ordering matches
-the pretrained model's profile at ${\approx}100\times$ larger magnitudes,
-so the structure is architectural and survives hardware-aware training,
-corroborating~\cite{lammie2026}. Weight magnitude, the obvious free
+rank-1-to-rank-49 spread of ${\approx}540\times$. The pretrained
+profile likewise concentrates sensitivity in early-block and
+output-facing projections, though HWA changes the top ordering, so the
+qualitative structure agrees with~\cite{lammie2026}. Weight
+magnitude, the obvious free
 proxy, is uncorrelated with it (Spearman $\rho_s{=}-0.08$). The profile
 costs 540 forward passes over the 250k-token calibration split, once
 per model, not per chip.
@@ -252,8 +253,8 @@ and \policy{static\_sensitivity} (quietest tiles first, most important
 shards first), which is provably $\Phi$-optimal at $t{=}0$ by the
 rearrangement inequality. The 90 spare tiers let quality-sorted
 policies leave the worst capacity empty; \policy{hardware\_only} shares
-this advantage, so its gap isolates importance ordering. The mapper is
-one sort over the 678 shards. Two bracketing placements complete the span:
+this advantage, so its gap isolates importance ordering. Two
+bracketing placements complete the span:
 \policy{adversarial} (most important shards onto the noisiest tiles) and
 \policy{oracle\_clairvoyant}, the same sorted rule applied to the
 \emph{trajectory-RMS} noise
@@ -314,8 +315,8 @@ controls the growth.
 \includegraphics[width=\columnwidth]{figures/p4_lifetime.png}
 \caption{Trace 42, the weakest of the five traces by lifetime gain
 over \policy{hardware\_only}; bands: min--max range over the three
-paired realizations ($n{=}3$). (a)~Held-out test perplexity with the
-three reference lines. (b)~Paired improvement of sensitivity-aware
+paired realizations ($n{=}3$). (a)~Held-out test perplexity and the
+three references. (b)~Paired improvement of sensitivity-aware
 placement per timestep; the advantage grows monotonically with
 degradation.}
 \label{fig:lifetime}
@@ -324,10 +325,9 @@ degradation.}
 \begin{table}[t]
 \centering
 \caption{End-of-life ($t{=}119$) test perplexity over 5 traces $\times$
-3 realizations: mean/worst over all 15 conditions; std, standard
-deviation across trace
-means; $\Delta_{29}$, NLL penalty versus pretrained; $>$diag., count
-above the $42.91$ diagnostic.}
+3 realizations: mean/worst over all 15 conditions; std, across the five
+trace means; $\Delta_{29}$, NLL penalty versus pretrained; $>$diag.,
+count above the $42.91$ diagnostic.}
 \label{tab:eol}
 \footnotesize
 \setlength{\tabcolsep}{4pt}
@@ -376,14 +376,14 @@ $2.7$--$4.6\times$ smaller than the baselines' (Table~\ref{tab:eol}).
 \subsection{One-Shot Placement Is Near-Oracle}
 \label{sec:r3}
 The two bracketing placements of Table~\ref{tab:bounds} were evaluated
-on the same five traces with exactly paired noise.
+on the same five traces with paired noise.
 Sensitivity-aware placement captures $97.8\%$ of the headroom
 available from trajectory knowledge (random-to-clairvoyant span;
 $96.3\%$ measured from \policy{hardware\_only}, $99.3\%$ of the
 adversarial-to-clairvoyant span; headroom from a better importance
 model lies outside all three); its residual gap to the clairvoyant
-reference, $0.002$ nats (95\% CI $[-0.003, 0.008]$ across traces), is
-about an eighth of the headline effect and \emph{statistically
+reference, $0.002$ nats (95\% CI $[-0.003, 0.008]$), is
+under $4\%$ of the $0.063$-nat headline effect and \emph{statistically
 indistinguishable from zero}. Knowing the future buys essentially
 nothing: faults strike tiles at random and drift is multiplicative, so
 importance weighting already keeps the important shards on the tiles
@@ -400,8 +400,8 @@ unusable one.
 \begin{table}[t]
 \centering
 \caption{Placement span: mean $\dnll_{\mathrm{tile}}$ (nats versus
-nominal) over 5 timesteps $\times$ 3 realizations $\times$ 5 traces.
-Gap: paired $\dnll$ of each placement minus proposed, with trace-level
+nominal) over 5 timesteps $\times$ 3 realizations $\times$ 5 traces;
+gap: paired $\dnll$ of each placement minus proposed, trace-level
 95\% CI ($t$, $n{=}5$).}
 \label{tab:bounds}
 \footnotesize
@@ -441,30 +441,30 @@ the harsher half (\policy{random} in three variants,
 % -------------------------------------------------------------------------
 \section{Discussion and Limitations}
 \label{sec:disc}
-This answers both questions left open in~\cite{lammie2026}:
-degradation erodes every static mapping, but workload-blind ones far
-faster (penalty growth $+0.13$--$0.16$ versus $+0.09$ nats), and
-intra-analog tile-quality differences are the resource placement
-exploits.
+This answers both open questions of~\cite{lammie2026}: degradation
+erodes every static mapping, but workload-blind ones far faster
+(penalty growth $+0.13$--$0.16$ versus $+0.09$ nats), and intra-analog
+tile-quality differences are the resource placement exploits.
 
-\emph{Hybrid comparison.} Retaining the LM head (or the head plus
-block-0 attention output) as digital modules and remapping the analog
-remainder with \policy{hardware\_only} (five traces,
-$t\!\in\!\{0,119\}$, one paired realization), the head-only hybrid
-trails all-analog \policy{hardware\_only} at $t{=}0$ ($-0.024$ nats,
-0/5 traces) and leads at $t{=}119$ ($+0.036$, 4/5; $+0.006$ overall,
-95\% CI $[-0.018,0.031]$), with $31.2\%$ of projection
-multiply--accumulate (MAC) operations digital; it trails
-sensitivity-aware all-analog placement by $0.060$ nats
-($[0.048,0.072]$; two-projection hybrid: $0.178$). These are lower
-bounds: the digital modules carry the checkpoint's unclipped weights,
-off-distribution per Section~\ref{sec:r1} (nominal PPL $34.59/39.13$
-versus $31.50$); a clipped-digital hybrid, hybrid-aware retraining, and
-energy/latency remain open.
+\emph{Hybrid comparison.} Keeping the LM head digital as a clipped
+float32 module (using the clipped weight transform seen during HWA
+training; $31.2\%$ of projection multiply--accumulate (MAC) operations) and
+remapping the analog remainder with \policy{hardware\_only}, the hybrid
+improves NLL over all-analog \policy{hardware\_only} by $0.113$ nats
+(95\% CI $[0.090,0.135]$; five traces, $t\!\in\!\{0,119\}$, one paired
+realization; 5/5) and over sensitivity-aware all-analog placement
+by $0.046$ ($[0.032,0.060]$); adding block-0 attention output
+($31.7\%$) gives $0.126$ and $0.060$. For the head-only hybrid,
+remapping the analog remainder sensitivity-aware adds $0.023$ nats
+relative to hardware-only placement ($[0.013,0.034]$, 5/5 traces,
+growing with age) and holds the end-of-life penalty to $0.22$ nats. On
+this endpoint grid the dominant-projection hybrid thus buys more than
+placement alone, at a digital-compute cost, and the two combine;
+hybrid-aware retraining and energy/latency remain open.
 
 Boundaries: simulation under a documented tile-noise contract; fixed
-geometry; sensitivity ordering validated by leave-one-out on one seed
-and a fifth of the calibration windows; uniform within-projection
+geometry; sensitivity ordering validated by leave-one-out (one seed, a
+fifth of the calibration windows); uniform within-projection
 sensitivity; dimensionless time. Scale
 generality is a hypothesis, not a result: the LM head's parameter share
 falls from ${\approx}30\%$ at 124M to a few percent at multi-billion
@@ -478,9 +478,9 @@ Code and data:
 For an all-analog GPT-2 on heterogeneous, aging in-memory tiles,
 placement decides how fast the deployment ages: a measured
 projection-sensitivity profile turns this free map-time choice into
-most of what a clairvoyant mapper achieves, and holds the end-of-life
-penalty versus the pretrained digital model to $0.30$ nats where
-workload-blind policies reach $0.39$--$0.45$.
+most of what a clairvoyant mapper achieves and holds the end-of-life
+penalty versus the pretrained model to $0.30$ nats where workload-blind
+policies reach $0.39$--$0.45$.
 
 % -------------------------------------------------------------------------
 
@@ -525,7 +525,8 @@ S.~Merity et al., ``Pointer sentinel mixture models,'' in
 
 \bibitem{lammie2026}
 C.~Lammie, ``Heterogeneous mapping for analog in-memory computing
-accelerators: A unified workflow,'' arXiv:2606.02672, 2026.
+accelerators: A unified workflow,'' \emph{IEEE Comput. Archit. Lett.},
+2026, early access, doi: 10.1109/LCA.2026.3699929.
 
 \bibitem{lionheart}
 C.~Lammie et al., ``LionHeart: A layer-based mapping framework
