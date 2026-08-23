@@ -37,6 +37,8 @@ cmake-build-*/
 *.so
 *.dylib
 
-# Local experiment outputs (the paper's raw results live on Google Drive)
+# Local experiment outputs and paper sources (results live on Google Drive,
+# the letter on Overleaf); this repository is code-only
 data/results/
 output/
+paper/

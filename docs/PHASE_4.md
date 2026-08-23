@@ -82,7 +82,7 @@ configuration is rejected by the run signature -- use a new `run_name`). The
 campaign writes `hybrid_baselines_cross_trace_summary.csv` (trace-level means,
 Student-t 95% CIs and win fractions versus both references),
 `hybrid_baselines_cross_trace_by_timestep.csv`, and the compact
-`hybrid_baselines_paper_by_condition.csv` for `paper/data/`. This is a
+`hybrid_baselines_paper_by_condition.csv` (per-condition rows for the paper). This is a
 **post-training deployment hybrid**, not a separately hybrid-aware fine-tuned
 checkpoint. The artifacts report the fraction of per-token projection MACs
 retained digitally (the LM head is tied to the embedding, so this is a compute

@@ -13,10 +13,10 @@ projection on analog tiles, sensitivity-aware placement holds language-model
 quality better than random, sequential, and hardware-only placement as
 heterogeneous tiles degrade.
 
-This repository holds the code, configurations, the Colab workflow, and the
-small derived tables/figure data cited by the paper (`paper/data`). Raw
-experiment outputs (checkpoints, traces, per-condition evaluations) live on
-Google Drive and are not committed.
+This repository is code-only: the pipeline, its configurations, tests, and
+the Colab workflow. Experiment outputs (checkpoints, traces, per-condition
+evaluations, summary tables) are archived on Google Drive and are not
+committed.
 
 ## Pipeline
 
@@ -118,7 +118,6 @@ configs/          canonical, smoke, bounds, GPT-2 Medium and Phase-2 sweep confi
 docs/             phase guides, Colab runbook, shared references
 experiments/      executable phase entry points
 notebooks/        Colab phase-selector notebook
-paper/            letter source (main.tex), figures, figure scripts, cited data tables
 scripts/          pipeline drivers, multiseed/aggregation, hybrid campaign, validation
 src/common        dataset windows, metrics, projection handles, analog settings, loaders
 src/training      Phase-0 noise-injection wrappers
