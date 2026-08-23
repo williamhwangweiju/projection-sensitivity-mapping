@@ -37,6 +37,57 @@ python3 experiments/phase4_quality/run_hybrid_quality.py \
   --phase3-manifest data/results/phase3_static_mapping/phase3_manifest.json
 ```
 
+### Digital/analog hybrid comparator
+
+The reviewer-requested deployment comparator keeps the configured dominant
+projection(s) in digital compute and remaps every remaining projection from
+scratch with the design's remainder policy (`mapping_policy`, default
+`hybrid_baselines.mapping_policy`):
+
+```bash
+python3 experiments/phase4_quality/run_hybrid_baselines.py \
+  --config configs/full_pipeline/gpt2_hybrid_3dcim.yaml \
+  --phase1 data/results/phase1_sensitivity/<profile>.json \
+  --trace data/results/phase2_fidelity/fidelity_traces/mixed_96x8/seed_42/trace.npz \
+  --all-analog-quality data/results/phase4_hybrid_quality/hybrid_quality_by_policy.csv
+```
+
+`hybrid_baselines.digital_weight_mode` selects how the digital projections hold
+their weights:
+
+| mode | digital projections | meaning |
+| --- | --- | --- |
+| `clipped` (paper) | float32 modules holding the weights clipped at `analog.clip_sigma` exactly as the analog conversion path; no quantization, no noise | the function the HWA checkpoint was trained through -- the deployment-relevant comparator |
+| `unclipped` | the checkpoint's original floating-point modules | the configuration Sec. IV-A of the paper labels an off-distribution diagnostic (first campaign, `hybrid_baselines_paper`) |
+
+Every condition is paired with the archived all-analog Phase-4 row of the same
+remainder policy (`all_analog_nll`, `nll_improvement_vs_all_analog`) and with
+the all-analog `static_sensitivity` row when present
+(`nll_improvement_vs_static_sensitivity`). Two checkpoint-level references are
+measured once per run and stored in the metadata: every projection
+digital-unclipped (`checkpoint_digital_reference`, the 42.91 diagnostic) and,
+in `clipped` mode, every projection digital-clipped
+(`checkpoint_clipped_digital_reference`).
+
+For the archived five-trace campaign, use
+`scripts/run_hybrid_baselines_multiseed.py --config <config> --phase1 <profile>
+--manifest <multiseed>/multiseed_run_manifest.yaml` (optionally `--run-name`,
+`--digital-weight-mode`, `--trace-seeds`); notebook Cell 8i wraps it. The
+runner is **resumable**: every finished condition is appended to
+`<run_name>/hybrid_baselines.partial.csv`, the nominal and reference passes are
+cached in `hybrid_baselines_references.partial.json`, finished trace seeds are
+recorded in `<multiseed>/<run_name>/hybrid_baselines_run_manifest.yaml`, and a
+rerun with the same configuration skips everything already measured (a changed
+configuration is rejected by the run signature -- use a new `run_name`). The
+campaign writes `hybrid_baselines_cross_trace_summary.csv` (trace-level means,
+Student-t 95% CIs and win fractions versus both references),
+`hybrid_baselines_cross_trace_by_timestep.csv`, and the compact
+`hybrid_baselines_paper_by_condition.csv` for `paper/data/`. This is a
+**post-training deployment hybrid**, not a separately hybrid-aware fine-tuned
+checkpoint. The artifacts report the fraction of per-token projection MACs
+retained digitally (the LM head is tied to the embedding, so this is a compute
+split, not extra storage); energy and latency are not modeled.
+
 ## Evaluation design
 
 ### 1. References
@@ -121,6 +172,11 @@ removed once the final CSV is written.
 | `phase4.num_realizations` | Gaussian fields per timestep and policy |
 | `phase4.antithetic` | Evaluate paired ±Z fields |
 | `phase4.unavailable_noise_std` | Substitute scale for unavailable tiles |
+| `hybrid_baselines.designs` | Named digital projection sets for the deployment comparators (each may set its own `mapping_policy`) |
+| `hybrid_baselines.digital_weight_mode` | `clipped` (float32 weights clipped as the analog path; paper) or `unclipped` (raw checkpoint modules) |
+| `hybrid_baselines.mapping_policy` | Default placement policy for every remaining analog shard |
+| `hybrid_baselines.run_name` | Campaign directory name under the multiseed root (new designs/mode need a new name) |
+| `hybrid_baselines.timesteps` / `num_realizations` | Conditions paired to the all-analog reference |
 
 ## Artifacts
 

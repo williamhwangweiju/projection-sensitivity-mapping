@@ -76,7 +76,7 @@ def main(out: Path) -> None:
             color="#1b1f27", va="center")
     ya, ha = 62.2, 8.2
     boxes_a = [
-        (2.0, 15.5, "Pretrained\nLLM", None, GREY_FILL, GREY_EDGE, "-"),
+        (2.0, 15.5, "Pretrained\nLM", None, GREY_FILL, GREY_EDGE, "-"),
         (20.0, 17.5, "HWA fine-tune\n(Phase 0)", None, GREY_FILL, GREY_EDGE, "-"),
         (40.0, 14.5, "Shard\n512×512", None, GREY_FILL, GREY_EDGE, "-"),
         (57.0, 22.0, "Mapping slot", "default: sequential\nor random", "#ffffff", BLUE_EDGE, (0, (2.2, 1.4))),
@@ -119,7 +119,7 @@ def main(out: Path) -> None:
     yc0, yc1 = 1.0, 29.3
     ax.add_patch(FancyBboxPatch((1.5, yc0), 97, yc1 - yc0, boxstyle="round,pad=0.3",
                                 linewidth=0.8, edgecolor=ORANGE_EDGE, facecolor=ORANGE_BAND))
-    ax.text(3.0, yc1 - 1.8, "CIM accelerator: runtime inference", fontsize=FS,
+    ax.text(3.0, yc1 - 1.8, "AIMC accelerator: runtime inference", fontsize=FS,
             fontweight="bold", color="#8a4b0a", va="center")
     box(ax, 3.0, 5.6, 23.0, 19.2, "Digital periphery", fill="#ffffff", edge=ORANGE_EDGE,
         fs=FS, sub="embedding lookup\nLayerNorm, softmax\nGELU, residual adds\ntoken loop control",

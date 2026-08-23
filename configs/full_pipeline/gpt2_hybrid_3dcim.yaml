@@ -182,3 +182,48 @@ phase4:
   num_realizations: 3
   antithetic: false
   unavailable_noise_std: 0.080
+
+# Reviewer-requested post-training hybrid comparator: keep the one or two
+# dominant Phase-1 projections in digital compute, remap every remaining
+# projection from scratch with the design's remainder policy, and evaluate on
+# the Phase-4 held-out grid, paired condition-by-condition with the archived
+# all-analog rows (same trace, timestep, realization and noise field).
+#
+# digital_weight_mode:
+#   clipped   - retained projections are float32 modules holding the weights
+#               clipped at analog.clip_sigma exactly as the analog path (no
+#               quantization, no noise): the function the HWA checkpoint was
+#               trained through, i.e. the deployment-relevant comparator.
+#   unclipped - the checkpoint's raw floating-point modules (the configuration
+#               the paper labels an off-distribution diagnostic; reproduces the
+#               first hybrid campaign, run_name hybrid_baselines_paper).
+# Each design may set its own remainder mapping_policy; the section default
+# applies otherwise. Designs are paired with the all-analog row of the SAME
+# remainder policy and, additionally, with all-analog static_sensitivity.
+# digital_projection_mac_fraction records the compute cost (the LM head is
+# tied to the embedding, so this is a compute split, not extra storage).
+hybrid_baselines:
+  output_root: data/results/phase4_hybrid_baselines
+  run_name: hybrid_baselines_clipped
+  digital_weight_mode: clipped
+  mapping_policy: hardware_only
+  mapping_timestep: 0
+  timesteps: [0, 119]
+  num_realizations: 1
+  antithetic: false
+  unavailable_noise_std: 0.080
+  designs:
+    # Workload-blind remainder: the comparator the reviewer asked for.
+    - name: hybrid_lm_head
+      digital_projection_ids: [lm_head]
+      mapping_policy: hardware_only
+    - name: hybrid_top2
+      digital_projection_ids: [lm_head, block_0/attn.c_proj]
+      mapping_policy: hardware_only
+    # Sensitivity-aware remainder: hybrid + placement (complementarity).
+    - name: hybrid_lm_head_sens
+      digital_projection_ids: [lm_head]
+      mapping_policy: static_sensitivity
+    - name: hybrid_top2_sens
+      digital_projection_ids: [lm_head, block_0/attn.c_proj]
+      mapping_policy: static_sensitivity

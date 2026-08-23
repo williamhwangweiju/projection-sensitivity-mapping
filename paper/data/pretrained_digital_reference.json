@@ -1,0 +1,26 @@
+{
+  "model": "gpt2 (pretrained Hugging Face weights, no checkpoint)",
+  "model_metadata": {
+    "model_name": "gpt2",
+    "checkpoint": null,
+    "loaded_from": "gpt2"
+  },
+  "dataset": {
+    "name": "Salesforce/wikitext",
+    "config": "wikitext-103-raw-v1",
+    "split": "test",
+    "sequence_length": 1024,
+    "stride": 1024,
+    "batch_size": 1,
+    "max_tokens": null,
+    "collected_tokens": 286178,
+    "num_windows": 279,
+    "num_batches": 279,
+    "predicted_tokens_per_pass": 285417
+  },
+  "device": "mps",
+  "nll": 3.367627148132598,
+  "ppl": 29.009609818103243,
+  "predicted_tokens": 285417,
+  "elapsed_s": 35.54408812522888
+}
