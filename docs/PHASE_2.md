@@ -1,7 +1,7 @@
 # Phase 2: Tile-Fidelity Trace Simulation
 
 Phase 2 generates a deterministic, time-varying hardware trace for the
-heterogeneous 3D-CIM substrate. Each trace value is a per-tile normalized
+heterogeneous tile-and-tier CIM substrate. Each trace value is a per-tile normalized
 logical-weight noise standard deviation. Later phases use these values to place
 projection shards and to scale manually materialized Gaussian weight noise.
 
@@ -94,7 +94,8 @@ the final timestep.
 
 Thermal-zone IDs are formed from `arange(N) % num_thermal_zones` and shuffled,
 so zone populations differ by at most one tile. Tiles in the same zone share
-the same fractional thermal state. Starting from `H_z,-1 = 0`, the state is
+the same fractional thermal state. The state starts from its stationary
+distribution, `H_z,-1 ~ Normal(0, standard_deviation_fraction)`, and is
 updated at every timestep, including timestep 0:
 
 ```text
@@ -106,9 +107,9 @@ epsilon_z,t ~ Normal(
 H_z,t = correlation * H_z,t-1 + epsilon_z,t
 ```
 
-Consequently, an enabled thermal process can perturb the initial trace row. An
-enabled process with `abs(correlation) < 1` approaches the configured stationary
-standard deviation but does not use a burn-in period.
+Consequently, an enabled thermal process perturbs the initial trace row as
+well; with `abs(correlation) < 1` the process is stationary with the configured
+standard deviation from the first timestep (no burn-in is needed).
 
 ### Localized faults
 

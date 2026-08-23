@@ -114,3 +114,23 @@ it resumes from the checkpoint (the cell streams its output and also tees it
 to `logs/leave_one_out_*.log`). A checkpoint from different settings (e.g. a
 `LOO_MAX_BATCHES` smoke run) is set aside automatically; tick
 `LOO_RESTART_FROM_SCRATCH` to discard it on purpose.
+
+## Additive experiments (Cells 8d–8i)
+
+All require Cells 1–7 in the same session (`SEED = 42`, `USE_HWA = True`,
+every `RUN_PHASE... = 0`) and resume after a preemption when rerun with the
+same settings:
+
+- **8d/8e** — bounds: `adversarial` and `oracle_clairvoyant` placements per
+  trace seed (`multiseed_bounds/`), trace-parity check and span table.
+- **8f/8g** — one-factor Phase-2 robustness sweep (`sweep/<variant>/`) and its
+  summary table.
+- **8h** — leave-one-out profile check (above).
+- **8i** — hybrid comparator: LM head / top-2 projections digital
+  (`digital_weight_mode = clipped` holds the digital weights clipped at 2.5σ
+  exactly as the analog path; `unclipped` keeps the raw checkpoint modules),
+  analog remainder remapped with `hardware_only` or `static_sensitivity`, paired
+  with the archived all-analog rows over the five frozen traces. Each condition
+  and the nominal/reference passes are checkpointed to Drive and finished seeds
+  are recorded in `multiseed/<HYBRID_RUN_NAME>/hybrid_baselines_run_manifest.yaml`;
+  the cross-trace summaries are exported to `paper_exports/<HYBRID_RUN_NAME>/`.

@@ -52,6 +52,8 @@ substrate (`num_tiles × tiers_per_tile`) and fails otherwise.
 | `sequential` | `tile_id`, then `tier_id` | Catalog order | Deterministic in-order placement |
 | `hardware_only` | Lowest tile noise first | Seeded permutation independent of sensitivity | Hardware-aware, workload-blind placement |
 | `static_sensitivity` | Lowest tile noise first | Highest measured importance first | Sensitivity-aware static placement |
+| `adversarial` | Highest tile noise first | Highest measured importance first | Worst-case bracket |
+| `oracle_clairvoyant` | Lowest trajectory-RMS noise first (`sqrt(mean_t sigma_i(t)^2)` over the whole trace) | Highest measured importance first | Clairvoyant reference (knows the full trace at map time) |
 
 The `hardware_only` permutation matters: GPT-2 catalog order begins with
 early blocks and correlates with sensitivity; permuting shards keeps that

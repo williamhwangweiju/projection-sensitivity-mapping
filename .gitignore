@@ -37,11 +37,6 @@ cmake-build-*/
 *.so
 *.dylib
 
-# Simulator build outputs
-simulators/**/build/
-simulators/**/*.o
-simulators/**/*.so
-aihwkit-lightning/
-
-# Local AIHWKit reference checkout (installed via pip; not a submodule)
-simulators/aihwkit/
+# Local experiment outputs (the paper's raw results live on Google Drive)
+data/results/
+output/
