@@ -204,12 +204,12 @@ phase4:
 # tied to the embedding, so this is a compute split, not extra storage).
 hybrid_baselines:
   output_root: data/results/phase4_hybrid_baselines
-  run_name: hybrid_baselines_clipped
+  run_name: hybrid_baselines_clipped_full
   digital_weight_mode: clipped
   mapping_policy: hardware_only
   mapping_timestep: 0
-  timesteps: [0, 119]
-  num_realizations: 1
+  timesteps: [0, 30, 60, 90, 119]
+  num_realizations: 3
   antithetic: false
   unavailable_noise_std: 0.080
   designs:
