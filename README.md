@@ -1,6 +1,6 @@
 # Sensitivity-Aware Placement for All-Analog GPT-2 on Aging In-Memory Tiles
 
-Code for the IEEE CAL letter *"Sensitivity-Aware Placement Sustains All-Analog
+Code for the IEEE ISCAS 2027 letter *"Sensitivity-Aware Placement Sustains All-Analog
 GPT-2 Inference on Aging In-Memory Tiles"*. GPT-2 Small is fine-tuned under a
 documented analog noise contract (hardware-aware training), each of its 49
 weight projections is profiled for noise sensitivity, and the resulting shard
