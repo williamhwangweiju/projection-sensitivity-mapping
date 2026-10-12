@@ -13,10 +13,8 @@ projection on analog tiles, sensitivity-aware placement holds language-model
 quality better than random, sequential, and hardware-only placement as
 heterogeneous tiles degrade.
 
-This repository is code-only: the pipeline, its configurations, tests, and
-the Colab workflow. Experiment outputs (checkpoints, traces, per-condition
-evaluations, summary tables) are archived on Google Drive and are not
-committed.
+This repository contains the pipeline, its configurations, tests, and the
+Colab workflow.
 
 ## Pipeline
 
@@ -39,6 +37,7 @@ flowchart LR
 | Phase 0 | Make the all-analog deployment functional (noise-injection fine-tuning) | `experiments/phase0_hwa_training/run_hwa_training.py` | [docs/PHASE_0.md](docs/PHASE_0.md) |
 | Phase 1 | Which projections are most sensitive to analog weight noise? | `experiments/phase1_sensitivity/run_aihwkit_profiling.py` | [docs/PHASE_1.md](docs/PHASE_1.md) |
 | Phase 1 check | Is the one-at-a-time profile rank-stable with all 49 projections noisy? | `experiments/phase1_sensitivity/run_leave_one_out.py` | [docs/PHASE_1.md](docs/PHASE_1.md#leave-one-out-check-rank-stability-of-the-additive-profile) |
+| Fisher-proxy comparison | How does placement from calibration gradient-square scores compare with measured sensitivity? | `scripts/run_fisher_proxy_analysis.py` | — |
 | Phase 2 | How does tile noise evolve (heterogeneity, drift, thermal variation, faults)? | `experiments/phase2_fidelity/run_fidelity_model.py` | [docs/PHASE_2.md](docs/PHASE_2.md) |
 | Phase 3 | How are analog shards assigned to tile/tier slots under each policy? | `experiments/phase3_baselines/run_baseline_mappings.py` | [docs/PHASE_3.md](docs/PHASE_3.md) |
 | Phase 4 | How does each placement age on the held-out test set? | `experiments/phase4_quality/run_hybrid_quality.py` | [docs/PHASE_4.md](docs/PHASE_4.md) |
@@ -47,8 +46,11 @@ flowchart LR
 ## Experiment contract
 
 The canonical configuration is `configs/full_pipeline/gpt2_hybrid_3dcim.yaml`
-(`gpt2_hybrid_3dcim_smoke.yaml` is its fast structural counterpart); only
-`experiment.seed` changes between hardware traces. Shared rules:
+(`gpt2_hybrid_3dcim_smoke.yaml` is its fast structural counterpart). Across
+hardware traces, the Phase-0 checkpoint and Phase-1 profile are reused;
+`experiment.seed` changes, and `--vary-placement-seed` also changes
+`experiment.placement_seed` for the random and hardware-only baselines.
+Shared rules:
 
 - GPT-2 `Conv1D` weights are handled in canonical `[out, in]` coordinates.
 - Each projection is clipped once at `analog.clip_sigma` population standard
@@ -71,8 +73,13 @@ python3 -m pip install -r requirements.txt
 python3 scripts/smoke_aihwkit_contract.py --device cpu   # checks the AIHWKit native extension
 ```
 
-Requirements pin `aihwkit==1.1.0` and `transformers<5`; models and datasets are
-fetched from the Hugging Face Hub on first use.
+Requirements pin `aihwkit==1.1.0` and require `transformers>=4.30,<5`;
+models and datasets are fetched from the Hugging Face Hub on first use.
+
+The configurations default to CPU. For full experiments, set `model.device`
+to `cuda` on a machine with a CUDA-enabled AIHWKit installation, or use the
+[Colab workflow](docs/COLAB.md). Full training, profiling, and evaluation runs
+are intended for a GPU.
 
 ## Running
 
@@ -84,25 +91,52 @@ python3 scripts/run_full_pipeline.py --config configs/full_pipeline/gpt2_hybrid_
 ```
 
 Phase 0 resumes from its newest step checkpoint and Phase 4 from its
-per-timestep partial CSV; `--skip-phase*` and `--*-artifact` flags reuse
-existing artifacts (see `scripts/run_full_pipeline.py --help`).
+per-timestep partial CSV. Resume with the same configuration and inputs; use
+a new output directory when changing them. Phase 1 profiling restarts from
+the beginning if interrupted; the leave-one-out check supports resume.
+`--skip-phase*` and artifact-path flags reuse existing artifacts (see
+`scripts/run_full_pipeline.py --help`).
 
 Independent hardware traces reuse the Phase-0 checkpoint and Phase-1 profile,
 and are aggregated with each trace as one statistical unit:
 
 ```bash
 python3 scripts/run_multiseed_pipeline.py --config configs/full_pipeline/gpt2_hybrid_3dcim.yaml \
-  --phase1 <profile>.json --trace-seeds 41 43 44 45 --vary-placement-seed --output-root <root>/multiseed
-python3 scripts/aggregate_multiseed.py --manifest <root>/multiseed/multiseed_run_manifest.yaml
+  --phase1 /path/to/profile.json --trace-seeds 41 42 43 44 45 \
+  --vary-placement-seed --output-root data/results/multiseed
+python3 scripts/aggregate_multiseed.py \
+  --manifest data/results/multiseed/multiseed_run_manifest.yaml \
+  --output data/results/multiseed/cross_trace_paired_summary.csv
 ```
+
+Replace `/path/to/profile.json` with the Phase-1 artifact from the paper
+configuration, and keep `model.checkpoint` pointed at its shared Phase-0
+checkpoint. The command above runs all five traces into one campaign
+directory; the Colab notebook can instead reuse the original seed-42 run.
 
 The additive experiments of the paper — placement bounds
 (`configs/full_pipeline/gpt2_allanalog_bounds.yaml`), the one-factor Phase-2
 sweep (`configs/phase2_sweep/`), the leave-one-out check, and the hybrid
 comparator (`scripts/run_hybrid_baselines_multiseed.py`) — are driven by the
 Colab notebook `notebooks/projection_sensitivity_mapping.ipynb`
-([docs/COLAB.md](docs/COLAB.md)). Phases 1 and 4 need a GPU; every long step
-checkpoints to Drive and resumes.
+([docs/COLAB.md](docs/COLAB.md)).
+
+The Fisher-proxy comparison has a separate driver. For a Phase-2 trace
+generated with seed 42:
+
+```bash
+python3 scripts/run_fisher_proxy_analysis.py \
+  --config configs/full_pipeline/gpt2_hybrid_3dcim.yaml \
+  --phase1 /path/to/profile.json --trace /path/to/trace.npz \
+  --max-batches 32 --trace-seed 42 \
+  --output-root data/results/fisher_proxy/trace_seed_42
+```
+
+Replace the artifact paths with the matching Phase-1 profile and Phase-2
+trace. The driver computes proxy scores, builds `static_fisher` placement,
+and evaluates it against `static_sensitivity`. Use `--proxy-artifact` to
+reuse computed scores across traces, and `--phase3-manifest` to reuse base
+placements from the same trace.
 
 ## Tests and validation
 
@@ -118,7 +152,7 @@ configs/          canonical, smoke, bounds, GPT-2 Medium and Phase-2 sweep confi
 docs/             phase guides, Colab runbook, shared references
 experiments/      executable phase entry points
 notebooks/        Colab phase-selector notebook
-scripts/          pipeline drivers, multiseed/aggregation, hybrid campaign, validation
+scripts/          pipeline drivers, multiseed/aggregation, Fisher and hybrid campaigns, validation
 src/common        dataset windows, metrics, projection handles, analog settings, loaders
 src/training      Phase-0 noise-injection wrappers
 src/profilers     Phase-1 sensitivity and leave-one-out profilers
