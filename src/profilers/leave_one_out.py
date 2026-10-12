@@ -1,24 +1,4 @@
-"""Leave-one-out sensitivity profile for the all-analog deployment.
-
-Phase 1 measures each projection *in isolation* (one projection analog, the
-other 48 digital).  Deployment noises all 49 projections simultaneously, so the
-additive profile is an assumption.  This module measures the complementary
-leave-one-out (LOO) profile:
-
-    s_loo(p) = E_a[ NLL(all 49 analog, noisy)  -  NLL(all analog, noisy, p restored) ]
-
-with the *same* per-projection standard-normal fields Z_{p,a} (same seeds as
-Phase 1: ``projection_noise_seed(realization_seed, projection_id)``), the same
-reference noise level, and the same antithetic pairs, so the two profiles are
-exactly paired.  ``restore_mode``:
-
-* ``nominal`` (default): p stays analog (clipped + quantized) but noise-free,
-  which isolates p's *noise* contribution exactly as Eq. (1) of the paper does.
-* ``digital``: p is swapped back to its original floating-point module.
-
-The profile is consumed only as a rank-stability check; see
-``experiments/phase1_sensitivity/run_leave_one_out.py``.
-"""
+"""Leave-one-out sensitivity profile for the all-analog deployment."""
 from __future__ import annotations
 
 from datetime import datetime, timezone

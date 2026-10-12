@@ -1,7 +1,4 @@
-"""AIHWKit-independent manual clipping and Gaussian noise pipeline.
-
-This module is the single source of truth used by both Phase 1 and Phase 4.
-"""
+"""AIHWKit-independent clipping and Gaussian noise pipeline shared by Phases 1 and 4."""
 from __future__ import annotations
 
 import hashlib

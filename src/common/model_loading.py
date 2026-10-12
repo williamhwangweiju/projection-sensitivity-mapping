@@ -1,10 +1,4 @@
-"""Shared causal-LM/tokenizer loading with optional local checkpoint override.
-
-Every runner that previously repeated the from_pretrained idiom loads through
-this module so the Phase 0 hardware-aware checkpoint substitutes uniformly:
-when ``model.checkpoint`` is set, weights come from that directory while
-``model.name`` continues to identify the architecture in metadata.
-"""
+"""Shared causal-LM/tokenizer loading with optional local checkpoint override."""
 from __future__ import annotations
 
 from pathlib import Path

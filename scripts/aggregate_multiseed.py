@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
-"""Aggregate Phase-4 paired policy comparisons across hardware-trace seeds.
-
-Within one trace, the 15 timestep/realization evaluations are correlated
-(shared trace, shared model, paired noise); their bootstrap intervals are
-descriptive only. This script treats each independent hardware-trace seed as
-the statistical unit: it computes the mean paired NLL improvement per trace,
-then reports the across-trace mean, standard deviation, a t-based 95%
-confidence interval over traces, and the fraction of traces the method policy
-wins. These are the inferentially meaningful paper numbers.
-"""
+"""Aggregate Phase-4 paired policy comparisons across hardware-trace seeds."""
 from __future__ import annotations
 
 import argparse

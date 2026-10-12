@@ -1,3 +1,4 @@
+"""Sharding geometry and static placement-policy invariants."""
 from src.mapping.objective import placement_proxy
 from src.mapping.placement import place_shards
 from src.mapping.sharding import build_shards

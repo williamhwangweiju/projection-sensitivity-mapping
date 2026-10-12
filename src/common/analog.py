@@ -1,10 +1,4 @@
-"""AIHWKit configuration and exact logical-weight I/O shared by hybrid phases.
-
-The AIHWKit imports are intentionally local so dependency-light structural tests
-can run without installing the simulator. The implementation of exact mapped-
-tile writes mirrors the validated current repository path and preserves clean
-AIHWKit mapping scales when logical noisy weights are installed.
-"""
+"""AIHWKit configuration and exact logical-weight I/O shared by hybrid phases."""
 from __future__ import annotations
 
 import math

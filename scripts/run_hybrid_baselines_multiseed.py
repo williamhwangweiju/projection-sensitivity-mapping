@@ -1,24 +1,5 @@
 #!/usr/bin/env python3
-"""Run and aggregate the digital/analog hybrid comparator across trace seeds.
-
-For every trace seed in the multiseed manifest, this script reuses the frozen
-Phase-2 trace and the archived all-analog Phase-4 table of that seed, runs
-``experiments/phase4_quality/run_hybrid_baselines.py`` (which checkpoints every
-condition to disk and resumes), records the finished seeds in a campaign
-manifest (so a restarted campaign skips them), and finally aggregates with
-each independent hardware trace as one inferential unit.
-
-Outputs under ``<manifest dir>/<run_name>/``:
-
-* ``hybrid_baselines_cross_trace_summary.csv`` -- per design: mean paired
-  improvement versus the all-analog placement with the same remainder policy
-  and versus all-analog ``static_sensitivity``, Student-t 95% CIs over traces,
-  trace win fractions, digital MAC fraction;
-* ``hybrid_baselines_cross_trace_by_timestep.csv`` -- the same per timestep;
-* ``hybrid_baselines_paper_by_condition.csv`` -- compact per-condition rows for
-  the paper's data folder;
-* ``hybrid_baselines_run_manifest.yaml`` -- completed seeds and artifact paths.
-"""
+"""Run and aggregate the digital/analog hybrid comparator across trace seeds."""
 from __future__ import annotations
 
 import argparse

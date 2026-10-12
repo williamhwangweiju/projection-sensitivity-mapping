@@ -1,18 +1,4 @@
-"""Hardware-aware noise-injection training utilities.
-
-Phase 0 fine-tunes the model under the same weight-noise model that Phases 1
-and 4 deploy: symmetric clipping at ``clip_sigma`` population standard
-deviations and additive i.i.d. Gaussian noise expressed as a fraction of the
-projection's programmed range.
-
-The scheme is perturb-forward / clean-update (Joshi et al., Nat. Commun.
-2020): each wrapped projection computes its forward pass from a temporarily
-clipped and noised copy of the live weight, so gradients are evaluated at the
-perturbed point while optimizer updates apply to the clean parameters. The
-parameters themselves are never mutated by the noise path.
-
-This module is deliberately AIHWKit-free.
-"""
+"""Hardware-aware noise-injection training (perturb-forward, clean-update; AIHWKit-free)."""
 from __future__ import annotations
 
 from dataclasses import dataclass

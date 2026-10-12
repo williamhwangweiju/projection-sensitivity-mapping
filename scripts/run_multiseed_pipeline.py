@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Run Phases 2–4 across independent hardware trace seeds.
-
-The Phase-0 checkpoint and the Phase-1 sensitivity profile are intentionally
-reused across traces. Each trace receives an isolated runtime YAML and output
-root, preventing accidental overwrites while preserving paired policy noise
-within that trace.
-"""
+"""Run Phases 2–4 across independent hardware trace seeds."""
 from __future__ import annotations
 
 import argparse

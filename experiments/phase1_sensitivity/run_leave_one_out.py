@@ -1,23 +1,5 @@
 #!/usr/bin/env python3
-"""Leave-one-out check of the Phase-1 sensitivity profile (all 49 projections analog).
-
-Measures s_loo(p) = E[NLL(all analog, noisy) - NLL(all analog, noisy, p restored)]
-with exactly the Phase-1 noise fields, and reports the rank agreement (Spearman,
-Kendall, top-k overlap) with the isolated Phase-1 profile.  Cost is comparable to
-Phase 1 itself (~10 + 49 x 10 forward passes over the calibration split).
-
-Usage (Colab, after Phase 1):
-  python experiments/phase1_sensitivity/run_leave_one_out.py \
-      --config configs/full_pipeline/gpt2_hybrid_3dcim.yaml \
-      --phase1 <phase1 JSON> [--restore-mode nominal|digital] [--max-batches N] [--fresh]
-
-Resumable: every forward-pass result is checkpointed to
-<output dir>/leave_one_out_<mode>_partial.json as soon as it is measured; rerunning
-the same command after a runtime disconnect skips what is already cached. The
-checkpoint carries a signature (config/Phase-1 hashes, batch count, noise
-settings, ...) and is set aside, not reused, when any of that differs. --fresh
-discards it.
-"""
+"""Leave-one-out check of the Phase-1 sensitivity profile (all 49 projections analog)."""
 from __future__ import annotations
 
 import argparse

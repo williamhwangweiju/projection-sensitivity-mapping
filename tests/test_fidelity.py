@@ -1,3 +1,4 @@
+"""Determinism and bounds of the Phase-2 tile-fidelity trace."""
 import numpy as np
 
 from src.simulators.hardware import HardwareConfig

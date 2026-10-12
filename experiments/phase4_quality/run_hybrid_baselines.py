@@ -1,32 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate deployment-time hybrids that retain top projections digitally.
-
-The model checkpoint, evaluation corpus, hardware traces, analog conversion,
-and noise fields match Phase 4. For each configured design, the named digital
-projections are kept in digital compute and every other Phase-1 projection is
-remapped from scratch to the hardware substrate with the design's remainder
-policy (``mapping_policy``, default ``hybrid_baselines.mapping_policy``).
-
-``hybrid_baselines.digital_weight_mode`` selects how the retained digital
-projections hold their weights:
-
-* ``unclipped`` -- the checkpoint's original floating-point modules (the
-  configuration the paper labels an off-distribution diagnostic);
-* ``clipped`` -- float32 modules holding the 2.5-sigma-clipped weights the HWA
-  checkpoint was trained through, no quantization, no noise (the
-  deployment-relevant digital comparator).
-
-Every condition is paired with the archived all-analog Phase-4 row of the same
-remainder policy (``--all-analog-quality``) and, when present, with the
-all-analog ``static_sensitivity`` row (the proposed policy). Two checkpoint-level
-references are measured once per run: every projection digital and unclipped
-(the 42.91 diagnostic of the paper) and, in ``clipped`` mode, every projection
-digital and clipped.
-
-Resumable: each completed condition is appended to a partial CSV, the
-checkpoint references and per-design nominal passes are cached in a partial
-JSON, and rerunning with the same configuration skips everything already done.
-"""
+"""Evaluate deployment-time hybrids that retain top projections digitally."""
 from __future__ import annotations
 
 import argparse
