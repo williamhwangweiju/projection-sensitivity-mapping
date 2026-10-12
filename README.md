@@ -1,7 +1,7 @@
 # Sensitivity-Aware Placement for All-Analog GPT-2 on Aging In-Memory Tiles
 
-Code for the IEEE Int. Symp. Circuits Syst. (ISCAS) paper *"Sensitivity-Aware Placement Sustains All-Analog
-GPT-2 Inference on Aging In-Memory Tiles"*. GPT-2 Small is fine-tuned under a
+Code for the IEEE ISCAS 2027 paper *"Sensitivity-Aware Placement Sustains
+All-Analog GPT-2 Inference on Aging In-Memory Tiles"*. GPT-2 Small is fine-tuned under a
 documented analog noise contract (hardware-aware training), each of its 49
 weight projections is profiled for noise sensitivity, and the resulting shard
 placement onto a heterogeneous, aging tile-and-tier substrate is compared
@@ -14,7 +14,7 @@ quality better than random, sequential, and hardware-only placement as
 heterogeneous tiles degrade.
 
 This repository contains the pipeline, its configurations, tests, and the
-Colab workflow.
+Colab workflow; experiment outputs are not committed.
 
 ## Pipeline
 
@@ -37,11 +37,12 @@ flowchart LR
 | Phase 0 | Make the all-analog deployment functional (noise-injection fine-tuning) | `experiments/phase0_hwa_training/run_hwa_training.py` | [docs/PHASE_0.md](docs/PHASE_0.md) |
 | Phase 1 | Which projections are most sensitive to analog weight noise? | `experiments/phase1_sensitivity/run_aihwkit_profiling.py` | [docs/PHASE_1.md](docs/PHASE_1.md) |
 | Phase 1 check | Is the one-at-a-time profile rank-stable with all 49 projections noisy? | `experiments/phase1_sensitivity/run_leave_one_out.py` | [docs/PHASE_1.md](docs/PHASE_1.md#leave-one-out-check-rank-stability-of-the-additive-profile) |
-| Fisher-proxy comparison | How does placement from calibration gradient-square scores compare with measured sensitivity? | `scripts/run_fisher_proxy_analysis.py` | — |
+| Fisher-proxy comparison | How does placement from calibration gradient-square scores compare with measured sensitivity? | `scripts/run_fisher_proxy_analysis.py` | [Running](#running) |
 | Phase 2 | How does tile noise evolve (heterogeneity, drift, thermal variation, faults)? | `experiments/phase2_fidelity/run_fidelity_model.py` | [docs/PHASE_2.md](docs/PHASE_2.md) |
 | Phase 3 | How are analog shards assigned to tile/tier slots under each policy? | `experiments/phase3_baselines/run_baseline_mappings.py` | [docs/PHASE_3.md](docs/PHASE_3.md) |
 | Phase 4 | How does each placement age on the held-out test set? | `experiments/phase4_quality/run_hybrid_quality.py` | [docs/PHASE_4.md](docs/PHASE_4.md) |
 | Hybrid comparator | LM head / top-2 projections digital, remainder analog | `experiments/phase4_quality/run_hybrid_baselines.py` | [docs/PHASE_4.md](docs/PHASE_4.md#digitalanalog-hybrid-comparator) |
+| Robustness checks | How robust is placement to tile-map error, and how much would adaptive re-mapping gain? | `scripts/robustness_analyses.py` | [Running](#running) |
 
 ## Experiment contract
 
@@ -138,6 +139,13 @@ and evaluates it against `static_sensitivity`. Use `--proxy-artifact` to
 reuse computed scores across traces, and `--phase3-manifest` to reuse base
 placements from the same trace.
 
+The map-error and adaptive re-mapping checks of the paper run on CPU in
+seconds from the Phase-1 profile alone:
+
+```bash
+python3 scripts/robustness_analyses.py --phase1 /path/to/profile.json
+```
+
 ## Tests and validation
 
 ```bash
@@ -152,7 +160,8 @@ configs/          canonical, smoke, bounds, GPT-2 Medium and Phase-2 sweep confi
 docs/             phase guides, Colab runbook, shared references
 experiments/      executable phase entry points
 notebooks/        Colab phase-selector notebook
-scripts/          pipeline drivers, multiseed/aggregation, Fisher and hybrid campaigns, validation
+scripts/          pipeline drivers, multiseed/aggregation, Fisher and hybrid campaigns, robustness checks, validation
+src/analysis      rank-correlation and Pareto helpers
 src/common        dataset windows, metrics, projection handles, analog settings, loaders
 src/training      Phase-0 noise-injection wrappers
 src/profilers     Phase-1 sensitivity and leave-one-out profilers
