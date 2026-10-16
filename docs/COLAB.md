@@ -134,3 +134,31 @@ same settings:
   and the nominal/reference passes are checkpointed to Drive and finished seeds
   are recorded in `multiseed/<HYBRID_RUN_NAME>/hybrid_baselines_run_manifest.yaml`;
   the cross-trace summaries are exported to `paper_exports/<HYBRID_RUN_NAME>/`.
+
+## GPT-2 Medium generality run (`notebooks/gpt2_medium_generality.ipynb`)
+
+A separate, seven-cell notebook that runs Phases 0–4 of
+`configs/full_pipeline/gpt2_medium_generality.yaml` (355M parameters, 97
+analog projections, 192×8 substrate, one hardware trace, t ∈ {0, 119} × 2
+realizations, policies `random` / `hardware_only` / `static_sensitivity`).
+Outputs land in a separate Drive tree, `results/medium/hwa/seed_<seed>/`.
+
+- **GPU: L4** (Python 3.12 runtime). Phase 0 trains in bf16; a T4 only
+  emulates bf16, so Cell 4 falls back to fp32 there and Phase 0 would take
+  35–50 h. Measured GPT-2 Small anchors on an L4 (July 2026 seed-42 run):
+  Phase 0 4.1 h, Phase 1 0.118 s per 1024-token window; Medium is ~3× that.
+- **Cost on an L4:** Phase 0 ~12 h (resumes every 250 steps), Phase 1 ~3.5 h
+  (1 + 97 × 11 = 1068 passes over 32 calibration windows; **not resumable**),
+  Phases 2–3 minutes, Phase 4 ~0.5 h (12 noisy + 2 reference passes, resumes
+  per condition). About 16 L4-hours in total.
+- **Recovery:** rerun Cells 1–6; Cell 6 skips phases whose final artifact is
+  already on Drive (`SKIP_COMPLETED_PHASES`), so only an interrupted Phase 1
+  restarts from scratch.
+- **Levers:** `PHASE1_CALIBRATION_TOKENS` (32768 default; 0 = all 243
+  validation windows, ~25 h) and the Cell-5 overrides block (e.g. the full
+  `phase4.timesteps: [0, 30, 60, 90, 119]` grid at 2.5× the Phase-4 cost).
+- **Paper numbers:** Cell 7 prints the per-policy lifetime table, the paired
+  improvements of `static_sensitivity`, the digital-crossing counts and the
+  Phase-1 ranking, optionally scores the *pretrained* gpt2-medium on the same
+  test windows (the deployment-alternative reference), and writes compact
+  CSVs to `results/medium/hwa/seed_<seed>/paper/`.

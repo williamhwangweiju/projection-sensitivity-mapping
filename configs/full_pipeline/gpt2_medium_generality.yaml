@@ -1,6 +1,6 @@
 # GPT-2 Medium (355M) generality check: single hardware trace, reduced Phase-4
-# grid (t in {0, 119}, 2 realizations, 4 policies -> 16 noisy passes + 2
-# references). Purpose: show the projection-sensitivity structure and the
+# grid (t in {0, 119}, 2 realizations, 3 policies -> 12 noisy passes + 2
+# reference passes). Purpose: show the projection-sensitivity structure and the
 # placement win persist beyond 124M parameters; the inferential multi-seed
 # campaign remains at GPT-2 Small. Substrate grows to 192x8 (1536 tiers) for
 # the 1350-shard all-analog candidate set, keeping the same 512x512 tier

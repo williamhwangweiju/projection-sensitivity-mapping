@@ -122,6 +122,11 @@ comparator (`scripts/run_hybrid_baselines_multiseed.py`) — are driven by the
 Colab notebook `notebooks/projection_sensitivity_mapping.ipynb`
 ([docs/COLAB.md](docs/COLAB.md)).
 
+The GPT-2 Medium generality run (`configs/full_pipeline/gpt2_medium_generality.yaml`,
+Phases 0–4 on one hardware trace) has its own notebook,
+`notebooks/gpt2_medium_generality.ipynb`; see the Medium section of
+[docs/COLAB.md](docs/COLAB.md) for GPU requirements and cost.
+
 The Fisher-proxy comparison has a separate driver. For a Phase-2 trace
 generated with seed 42:
 
@@ -159,7 +164,7 @@ python3 scripts/validate_pipeline_contracts.py --help   # cross-phase contract c
 configs/          canonical, smoke, bounds, GPT-2 Medium and Phase-2 sweep configurations
 docs/             phase guides, Colab runbook, shared references
 experiments/      executable phase entry points
-notebooks/        Colab phase-selector notebook
+notebooks/        Colab notebooks: phase selector (GPT-2 Small campaign), GPT-2 Medium generality run
 scripts/          pipeline drivers, multiseed/aggregation, Fisher and hybrid campaigns, robustness checks, validation
 src/analysis      rank-correlation and Pareto helpers
 src/common        dataset windows, metrics, projection handles, analog settings, loaders
